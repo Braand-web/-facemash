@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<article style="padding:17px 16px 8px;border-bottom:1px solid var(--line);animation:fmIn .32s ease both">
+  <header style="display:flex;align-items:flex-start;gap:11px;margin-bottom:10px">
+    <button onClick="{{ p.openAuthor }}" style="width:42px;height:42px;flex:0 0 42px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:14.5px;color:oklch(0.16 0.03 {{ p.hue }});background:oklch(0.78 0.10 {{ p.hue }})">{{ p.initials }}</button>
+    <button onClick="{{ p.openAuthor }}" style="flex:1;min-width:0;text-align:left;padding-top:2px">
+      <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+        <span style="font-size:15px;font-weight:600;letter-spacing:-0.01em">{{ p.name }}</span>
+        <span style="font-size:13.5px;color:var(--ink3)">@{{ p.username }}</span>
+      </div>
+      <div style="font-size:12.5px;color:var(--ink3);margin-top:2px">{{ p.time }} · {{ p.visLabel }}</div>
+    </button>
+    <div style="display:flex;align-items:center;gap:4px">
+      <sc-if value="{{ p.showFollow }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ p.follow }}" style="padding:7px 14px;border-radius:999px;font-size:13px;font-weight:600;background:transparent;color:var(--accent);border:1px solid var(--accent)" style-hover="background:var(--accent);color:var(--accentInk)">{{ p.followLabel }}</button>
+      </sc-if>
+      <button onClick="{{ p.menu }}" style="width:32px;height:32px;border-radius:50%;display:grid;place-items:center;color:var(--ink3);font-family:'Material Symbols Rounded';font-size:20px" style-hover="background:var(--surface);color:var(--ink)">more_horiz</button>
+    </div>
+  </header>
+
+  <sc-if value="{{ p.hasText }}" hint-placeholder-val="{{ true }}">
+    <p onClick="{{ p.open }}" style="margin:0 0 11px;font-size:15.5px;line-height:1.55;text-wrap:pretty;cursor:pointer">{{ p.text }}</p>
+  </sc-if>
+
+  <sc-if value="{{ p.hasTags }}" hint-placeholder-val="{{ false }}">
+    <p style="margin:0 0 11px;font-size:14px;color:var(--accent);font-weight:500">{{ p.tags }}</p>
+  </sc-if>
+
+  <sc-if value="{{ p.single }}" hint-placeholder-val="{{ false }}">
+    <button onClick="{{ p.open }}" style="display:block;width:100%;position:relative;border-radius:16px;overflow:hidden;aspect-ratio:{{ p.ratio0 }};max-height:520px;background:repeating-linear-gradient(135deg, oklch(0.30 0.03 {{ p.hue }}) 0 11px, oklch(0.25 0.02 {{ p.hue }}) 11px 22px);border:1px solid var(--line)">
+      <span style="position:absolute;inset:0;display:grid;place-items:center;padding:20px;text-align:center;font-family:ui-monospace,monospace;font-size:11.5px;letter-spacing:0.07em;text-transform:uppercase;color:oklch(0.92 0.02 {{ p.hue }})">{{ p.m0 }}</span>
+      <sc-if value="{{ p.isVideo }}" hint-placeholder-val="{{ false }}">
+        <span style="position:absolute;left:12px;bottom:12px;display:flex;align-items:center;gap:6px;padding:6px 11px;border-radius:999px;background:oklch(0.15 0 0 / 0.55);backdrop-filter:blur(6px);color:oklch(0.98 0 0);font-size:12px;font-weight:500">
+          <span style="font-family:'Material Symbols Rounded';font-size:16px;font-variation-settings:'FILL' 1">play_arrow</span>{{ p.viewsLabel }}
+        </span>
+      </sc-if>
+    </button>
+  </sc-if>
+
+  <sc-if value="{{ p.carousel }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:4px">
+      <sc-for list="{{ p.media }}" as="m" hint-placeholder-count="3">
+        <div style="position:relative;flex:0 0 76%;scroll-snap-align:center;border-radius:16px;overflow:hidden;aspect-ratio:4/5;max-height:460px;background:repeating-linear-gradient(135deg, oklch(0.30 0.03 {{ m.hue }}) 0 11px, oklch(0.25 0.02 {{ m.hue }}) 11px 22px);border:1px solid var(--line)">
+          <span style="position:absolute;inset:0;display:grid;place-items:center;padding:18px;text-align:center;font-family:ui-monospace,monospace;font-size:11.5px;letter-spacing:0.07em;text-transform:uppercase;color:oklch(0.92 0.02 {{ m.hue }})">{{ m.label }}</span>
+          <span style="position:absolute;right:10px;top:10px;padding:4px 9px;border-radius:999px;background:oklch(0.15 0 0 / 0.55);color:oklch(0.98 0 0);font-size:11.5px;font-weight:500">{{ m.idx }}/{{ m.total }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="display:flex;align-items:center;gap:2px;margin-top:6px">
+    <button onClick="{{ p.like }}" style="display:flex;align-items:center;gap:6px;padding:9px 10px;border-radius:10px;font-size:13.5px;font-weight:500;color:{{ p.likeColor }}" style-hover="background:var(--surface)">
+      <span style="font-family:'Material Symbols Rounded';font-size:21px;font-variation-settings:'FILL' {{ p.likeFill }}">favorite</span>{{ p.likes }}
+    </button>
+    <button onClick="{{ p.open }}" style="display:flex;align-items:center;gap:6px;padding:9px 10px;border-radius:10px;font-size:13.5px;font-weight:500;color:var(--ink3)" style-hover="background:var(--surface);color:var(--ink)">
+      <span style="font-family:'Material Symbols Rounded';font-size:21px">mode_comment</span>{{ p.comments }}
+    </button>
+    <button onClick="{{ p.repost }}" style="display:flex;align-items:center;gap:6px;padding:9px 10px;border-radius:10px;font-size:13.5px;font-weight:500;color:{{ p.rpColor }}" style-hover="background:var(--surface)">
+      <span style="font-family:'Material Symbols Rounded';font-size:21px">repeat</span>{{ p.reposts }}
+    </button>
+    <button onClick="{{ p.share }}" style="margin-left:auto;width:38px;height:38px;border-radius:10px;display:grid;place-items:center;color:var(--ink3);font-family:'Material Symbols Rounded';font-size:20px" style-hover="background:var(--surface);color:var(--ink)">ios_share</button>
+    <button onClick="{{ p.save }}" style="width:38px;height:38px;border-radius:10px;display:grid;place-items:center;color:{{ p.saveColor }};font-family:'Material Symbols Rounded';font-size:21px;font-variation-settings:'FILL' {{ p.saveFill }}" style-hover="background:var(--surface)">bookmark</button>
+  </div>
+</article>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:600,&quot;height&quot;:420},&quot;p&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;object&quot;}}"></script>
+</body>
+</html>

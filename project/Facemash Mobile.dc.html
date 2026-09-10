@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Geist:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;padding:0;background:oklch(0.955 0.004 265);-webkit-font-smoothing:antialiased}
+body{font-family:'Geist',system-ui,sans-serif}
+*{box-sizing:border-box}
+a{color:oklch(0.55 0.11 182);text-decoration:none}
+a:hover{color:oklch(0.30 0.02 265)}
+</style>
+</helmet>
+
+<div style="min-height:100dvh;background:oklch(0.955 0.004 265);padding:40px 20px 56px;display:flex;flex-direction:column;align-items:center;gap:28px">
+  <header style="text-align:center;max-width:50ch">
+    <h1 style="margin:0 0 8px;font-family:'Bricolage Grotesque',sans-serif;font-size:26px;font-weight:800;letter-spacing:-0.03em;color:oklch(0.22 0.012 265)">Facemash sur mobile</h1>
+    <p style="margin:0;font-size:14.5px;line-height:1.6;color:oklch(0.42 0.012 265);text-wrap:pretty">L'application entière dans un iPhone à l'échelle réelle, 402 × 874. Tout est cliquable : le flux vertical, la messagerie plein écran, les appels, l'enregistrement vocal.</p>
+  </header>
+
+  <div style="position:relative;width:424px;height:896px;flex:0 0 auto;border-radius:54px;padding:11px;background:linear-gradient(160deg, oklch(0.42 0.008 265), oklch(0.28 0.006 265));box-shadow:0 44px 90px -30px oklch(0.25 0.02 265 / 0.45), 0 0 0 1px oklch(0.20 0.01 265 / 0.35)">
+    <div style="position:relative;transform:translate(0);width:100%;height:100%;border-radius:42px;overflow:hidden;background:#000">
+      <div style="position:absolute;top:14px;left:50%;transform:translateX(-50%);width:118px;height:33px;border-radius:20px;background:#000;z-index:60"></div>
+      <div style="position:absolute;top:0;left:0;right:0;height:52px;z-index:55;display:flex;align-items:center;justify-content:space-between;padding:16px 30px 0;pointer-events:none">
+        <span style="font-size:15px;font-weight:600;color:#fff;letter-spacing:-0.01em">9:41</span>
+        <span style="display:flex;align-items:center;gap:6px">
+          <svg width="18" height="11" viewBox="0 0 18 11"><rect x="0" y="7" width="3" height="4" rx="0.7" fill="#fff"></rect><rect x="4.6" y="4.8" width="3" height="6.2" rx="0.7" fill="#fff"></rect><rect x="9.2" y="2.4" width="3" height="8.6" rx="0.7" fill="#fff"></rect><rect x="13.8" y="0" width="3" height="11" rx="0.7" fill="#fff"></rect></svg>
+          <svg width="24" height="12" viewBox="0 0 24 12"><rect x="0.5" y="0.5" width="21" height="11" rx="3.2" stroke="#fff" stroke-opacity="0.4" fill="none"></rect><rect x="2" y="2" width="18" height="8" rx="2" fill="#fff"></rect><path d="M23 4v4c0.7-0.3 1.2-1.1 1.2-2S23.7 4.3 23 4Z" fill="#fff" fill-opacity="0.45"></path></svg>
+        </span>
+      </div>
+      <div style="height:100%;padding:52px 0 20px;overflow:hidden">
+        <dc-import name="Facemash" viewportW="{{ 402 }}" viewportH="{{ 802 }}" hint-size="402px,802px"></dc-import>
+
+      </div>
+      <div style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:132px;height:5px;border-radius:3px;background:oklch(0.99 0 0 / 0.75);z-index:70;pointer-events:none"></div>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>
