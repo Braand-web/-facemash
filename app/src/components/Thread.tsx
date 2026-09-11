@@ -957,6 +957,8 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
   const [cameraOn, setCameraOn] = useState(true);
   const [recording, setRecording] = useState<{ seconds: number; cancel: boolean; startX: number } | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
+  const recordingRef = useRef<{ seconds: number; cancel: boolean; startX: number } | null>(null);
+  const stopRecordingRef = useRef<(force: boolean) => void>(() => {});
 
   const conversation = kind === 'dm' ? data.conversations.find((c) => c.id === id) : undefined;
   const group = kind === 'group' ? data.groups.find((g) => g.id === id) : undefined;
@@ -996,6 +998,8 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
   }, [call?.live]);
 
   const isRecording = recording !== null;
+  recordingRef.current = recording;
+
   useEffect(() => {
     if (!isRecording) return;
     const timer = window.setInterval(
@@ -1003,6 +1007,28 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
       100,
     );
     return () => window.clearInterval(timer);
+  }, [isRecording]);
+
+  // The mic button unmounts the moment the recording bar takes its place, so the
+  // hold gesture has to be followed on the window instead.
+  useEffect(() => {
+    if (!isRecording) return;
+    const onMove = (event: PointerEvent) => {
+      setRecording((prev) => {
+        if (!prev) return prev;
+        const cancel = event.clientX - prev.startX < -60;
+        return cancel === prev.cancel ? prev : { ...prev, cancel };
+      });
+    };
+    const onUp = () => stopRecordingRef.current(false);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
   }, [isRecording]);
 
   const startCall = (callKind: 'audio' | 'video') => {
@@ -1018,7 +1044,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
   };
 
   const stopRecording = (force: boolean) => {
-    const current = recording;
+    const current = recordingRef.current;
     setRecording(null);
     if (!current) return;
     if (current.cancel) {
@@ -1034,6 +1060,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
       mediaLabel: `note vocale · ${mmss(Math.max(1, current.seconds))}`,
     });
   };
+  stopRecordingRef.current = stopRecording;
 
   const send = () => {
     if (!draft.trim()) return;
@@ -1605,15 +1632,6 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
                         e.currentTarget.setPointerCapture?.(e.pointerId);
                         setRecording({ seconds: 0, cancel: false, startX: e.clientX });
                       }}
-                      onPointerMove={(e) => {
-                        setRecording((prev) => {
-                          if (!prev) return prev;
-                          const cancel = e.clientX - prev.startX < -60;
-                          return cancel === prev.cancel ? prev : { ...prev, cancel };
-                        });
-                      }}
-                      onPointerUp={() => stopRecording(false)}
-                      onPointerLeave={() => recording && stopRecording(false)}
                       style={{
                         width: 44,
                         height: 44,

@@ -234,6 +234,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [offline, setOffline] = useState(!navigator.onLine);
   const [remoteProfileId, setRemoteProfileId] = useState<string | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
+  // Read in timers and callbacks that must not close over a stale render.
+  const composerRef = useRef(composer);
+  const dataRef = useRef(data);
+  composerRef.current = composer;
+  dataRef.current = data;
 
   const meId = remoteProfileId ?? ME;
   const syncing = remoteProfileId !== null;
@@ -473,60 +478,63 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const publish = useCallback(
     (onDone: () => void) => {
-      setComposerState((prev) => {
-        if (!prev.text.trim() && !prev.media.length) return { ...prev, error: t.uploadErr };
-        return { ...prev, busy: true, error: '' };
-      });
+      const draft = composerRef.current;
+      if (!draft.text.trim() && !draft.media.length) {
+        setComposerState((prev) => ({ ...prev, error: t.uploadErr }));
+        return;
+      }
+      setComposerState((prev) => ({ ...prev, busy: true, error: '' }));
       window.setTimeout(() => {
-        setComposerState((current) => {
-          if (!current.busy) return current;
-          const tags = current.tags
-            .split(/[,\s]+/)
-            .filter(Boolean)
-            .map((x) => (x[0] === '#' ? x : '#' + x));
-          setData((prev) => {
-            const posts = prev.posts.slice();
-            if (current.editing) {
-              const i = posts.findIndex((p) => p.id === current.editing);
-              if (i >= 0) {
-                posts[i] = {
-                  ...posts[i],
-                  text: current.text,
-                  tags,
-                  visibility: current.visibility,
-                  media: current.media,
-                  location: current.location,
-                };
-                if (syncing) void remote.updatePost(posts[i]);
-              }
-            } else {
-              const post: Post = {
-                id: newId(),
-                authorId: meId,
-                kind: current.kind,
-                text: current.text,
-                tags,
-                visibility: current.visibility,
-                location: current.location,
-                createdAt: Date.now(),
-                likes: 0,
-                reposts: 0,
-                shares: 0,
-                views: 0,
-                completion: current.kind === 'video' ? 0.5 : 0,
-                watchSeconds: 0,
-                category: user.interests[0] ?? 'lifestyle',
-                media: current.media,
-              };
-              posts.unshift(post);
-              if (syncing) void remote.createPost(post);
-            }
-            return { ...prev, posts };
-          });
-          showToast(t.published);
-          onDone();
-          return emptyComposer();
-        });
+        const current = composerRef.current;
+        if (!current.busy) return;
+        const tags = current.tags
+          .split(/[,\s]+/)
+          .filter(Boolean)
+          .map((x) => (x[0] === '#' ? x : '#' + x));
+
+        if (current.editing) {
+          const existing = dataRef.current.posts.find((p) => p.id === current.editing);
+          if (existing) {
+            const updated: Post = {
+              ...existing,
+              text: current.text,
+              tags,
+              visibility: current.visibility,
+              media: current.media,
+              location: current.location,
+            };
+            setData((prev) => ({
+              ...prev,
+              posts: prev.posts.map((p) => (p.id === updated.id ? updated : p)),
+            }));
+            if (syncing) void remote.updatePost(updated);
+          }
+        } else {
+          const post: Post = {
+            id: newId(),
+            authorId: meId,
+            kind: current.kind,
+            text: current.text,
+            tags,
+            visibility: current.visibility,
+            location: current.location,
+            createdAt: Date.now(),
+            likes: 0,
+            reposts: 0,
+            shares: 0,
+            views: 0,
+            completion: current.kind === 'video' ? 0.5 : 0,
+            watchSeconds: 0,
+            category: user.interests[0] ?? 'lifestyle',
+            media: current.media,
+          };
+          setData((prev) => ({ ...prev, posts: [post, ...prev.posts] }));
+          if (syncing) void remote.createPost(post);
+        }
+
+        setComposerState(emptyComposer());
+        showToast(t.published);
+        onDone();
       }, 700);
     },
     [meId, showToast, t, user.interests, syncing],
