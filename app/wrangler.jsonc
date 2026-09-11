@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "facemash",
+  "compatibility_date": "2026-09-11",
+  // Static build, served by Cloudflare's asset runtime. Unknown paths fall back to
+  // index.html so /explore, /messages/dm/:id and friends survive a refresh.
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}

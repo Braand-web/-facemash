@@ -27,6 +27,20 @@ channels, stories, notifications and settings. Migrations live in `../supabase/m
 A signed-in account gets no simulated replies: the other side of a conversation is a real
 row or nothing.
 
+## Déploiement (Cloudflare Workers)
+
+`wrangler.jsonc` sert `dist/` en assets statiques avec repli SPA sur `index.html`.
+
+- Depuis votre machine : `npx wrangler login` puis `npm run deploy`.
+- En CI : `.github/workflows/deploy.yml` build et déploie à chaque push sur `main`.
+  Secrets à définir dans GitHub → Settings → Secrets and variables → Actions :
+  `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `VITE_SUPABASE_URL`,
+  `VITE_SUPABASE_ANON_KEY`. Sans le token Cloudflare, l'étape de déploiement est
+  simplement sautée.
+
+Les variables `VITE_*` sont intégrées au bundle au moment du build : il faut donc
+re-déployer après les avoir changées.
+
 ## Layout rules from the design
 
 - `wide` ≥ 1000px: sidebar instead of the bottom tab bar; the right rail appears ≥ 1280px.

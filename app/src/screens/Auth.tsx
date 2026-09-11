@@ -69,6 +69,11 @@ export function Auth() {
         setError(result.error.message);
         return;
       }
+      // With email confirmation on, sign-up returns no session until the link is clicked.
+      if (!result.data.session) {
+        setDone(true);
+        return;
+      }
       signIn({ onboarded: mode !== 'signup', authId: result.data.user?.id });
       return;
     }

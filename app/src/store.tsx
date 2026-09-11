@@ -239,6 +239,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const syncing = remoteProfileId !== null;
   const t = dict[lang];
 
+  // Pick up a Supabase session that already exists — a refresh, or the click on a
+  // confirmation link that lands back on the app.
+  useEffect(() => {
+    if (!remoteEnabled || !supabase) return;
+    void supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        const authId = data.session?.user.id;
+        if (authId) setSession((prev) => (prev?.authId ? prev : { onboarded: true, authId }));
+      })
+      .catch(() => {
+        /* unreachable backend: the app stays on local state */
+      });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => {
+      if (next?.user) setSession((prev) => (prev?.authId ? prev : { onboarded: true, authId: next.user.id }));
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
   // A signed-in account replaces the seeded demo state with its own rows.
   useEffect(() => {
     if (!remoteEnabled || !session?.authId) {
@@ -247,9 +266,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     let cancelled = false;
     void (async () => {
-      const profileId = await loadProfileId();
+      const profileId = await loadProfileId().catch(() => null);
       if (cancelled || !profileId) return;
-      const snapshot = await loadSnapshot(profileId);
+      const snapshot = await loadSnapshot(profileId).catch(() => null);
       if (cancelled || !snapshot) return;
       setRemoteProfileId(profileId);
       setData(snapshot.data);
