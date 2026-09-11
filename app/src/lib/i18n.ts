@@ -202,6 +202,12 @@ const fr = {
   notificationsOff: 'Désactivées',
   refreshing: 'Actualisation…',
   like: 'J’aime',
+  install: 'Installer l’application',
+  installShort: 'Installer',
+  installPitch: 'Facemash en plein écran, avec une icône sur ton écran d’accueil.',
+  installIos: 'Sur iPhone : bouton Partager, puis « Sur l’écran d’accueil ».',
+  installed: 'Installée',
+  later: 'Plus tard',
 };
 
 export type Dict = typeof fr;
@@ -408,6 +414,12 @@ const en: Dict = {
   notificationsOff: 'Off',
   refreshing: 'Refreshing…',
   like: 'Like',
+  install: 'Install the app',
+  installShort: 'Install',
+  installPitch: 'Facemash full screen, with an icon on your home screen.',
+  installIos: 'On iPhone: Share button, then “Add to Home Screen”.',
+  installed: 'Installed',
+  later: 'Later',
 };
 
 export const dict: Record<Lang, Dict> = { fr, en };

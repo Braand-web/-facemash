@@ -5,6 +5,7 @@ import { useApp } from '../store';
 import { useOverlays } from '../overlays';
 import { useDialog } from '../lib/dialog';
 import { uploadFile } from '../lib/upload';
+import { InstallPrompt } from './InstallPrompt';
 import { initials as toInitials, rel } from '../lib/format';
 import type { PostKind, Visibility } from '../types';
 
@@ -888,6 +889,7 @@ function OfflineBar() {
 export function Overlays() {
   return (
     <>
+      <InstallPrompt />
       <Composer />
       <StoryViewer />
       <ShareSheet />

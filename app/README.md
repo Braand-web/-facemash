@@ -41,6 +41,22 @@ row or nothing.
 Les variables `VITE_*` sont intégrées au bundle au moment du build : il faut donc
 re-déployer après les avoir changées.
 
+## Installation (PWA)
+
+Le build génère un manifeste et un service worker (`vite-plugin-pwa`, stratégie
+`autoUpdate`) : la coquille de l'app, les polices et les médias déjà vus sont mis en
+cache, donc l'app se lance hors connexion.
+
+- Android / Chrome / Edge : une bannière « Installer l'application » apparaît dès que le
+  navigateur le permet, et l'entrée reste disponible dans Paramètres. Fermer la bannière
+  la met en veille 7 jours.
+- iOS / Safari : pas d'événement d'installation, l'app affiche donc la marche à suivre
+  (Partager → « Sur l'écran d'accueil »).
+- Icônes dans `public/` : 192, 512, une variante `maskable` et l'icône Apple.
+
+L'installabilité exige HTTPS et une origine servie par un serveur — elle fonctionne sur
+le déploiement Cloudflare, pas dans l'aperçu mono-fichier.
+
 ## Confidentialité, médias, temps réel
 
 - **Comptes privés** : bascule dans Paramètres. Suivre un compte privé envoie une demande ;

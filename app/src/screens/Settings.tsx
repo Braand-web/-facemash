@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Icon } from '../components/Icon';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { useApp } from '../store';
+import { useInstall } from '../lib/install';
 
 const row = {
   display: 'flex',
@@ -16,6 +17,7 @@ const row = {
 export function Settings() {
   const navigate = useNavigate();
   const { t, lang, theme, user, me, toggleTheme, toggleLang, signOut, togglePrivateAccount } = useApp();
+  const { canInstall, ios, installed, promptInstall } = useInstall();
   const [notifications, setNotifications] = useState(
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
   );
@@ -80,6 +82,26 @@ export function Settings() {
             />
           </span>
         </button>
+
+        {(canInstall || ios || installed) && (
+          <button
+            className="hov-surface"
+            onClick={() => void promptInstall()}
+            disabled={!canInstall}
+            style={row}
+          >
+            <Icon name="install_mobile" size={22} color="var(--ink2)" />
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'block', fontSize: 15 }}>{t.install}</span>
+              {ios && !installed && (
+                <span style={{ display: 'block', fontSize: 12.5, color: 'var(--ink3)', marginTop: 2 }}>
+                  {t.installIos}
+                </span>
+              )}
+            </span>
+            {installed && <span style={{ fontSize: 14, color: 'var(--ink3)' }}>{t.installed}</span>}
+          </button>
+        )}
 
         <button
           className="hov-surface"
