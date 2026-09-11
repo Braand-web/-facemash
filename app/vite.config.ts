@@ -6,6 +6,8 @@ import { VitePWA } from 'vite-plugin-pwa';
 const standalone = !!process.env.VITE_HASH_ROUTER;
 
 export default defineConfig({
+  // Relative when the app is served from a subpath, as on GitHub Pages.
+  base: process.env.VITE_BASE ?? '/',
   plugins: [
     react(),
     ...(standalone
