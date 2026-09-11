@@ -1,0 +1,220 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Geist:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&display=block');
+
+:root {
+  --bg: oklch(0.155 0.006 265);
+  --surface: oklch(0.205 0.008 265);
+  --surface2: oklch(0.255 0.009 265);
+  --line: oklch(0.315 0.009 265);
+  --ink: oklch(0.975 0.003 265);
+  --ink2: oklch(0.735 0.011 265);
+  --ink3: oklch(0.575 0.012 265);
+  --accent: oklch(0.80 0.125 182);
+  --accentInk: oklch(0.20 0.05 182);
+  --like: oklch(0.68 0.19 20);
+  --shadow: 0 18px 50px -18px oklch(0 0 0 / 0.6);
+}
+
+:root[data-theme='light'] {
+  --bg: oklch(0.985 0.003 265);
+  --surface: oklch(1 0 0);
+  --surface2: oklch(0.955 0.004 265);
+  --line: oklch(0.895 0.005 265);
+  --ink: oklch(0.205 0.012 265);
+  --ink2: oklch(0.455 0.012 265);
+  --ink3: oklch(0.615 0.011 265);
+  --accent: oklch(0.60 0.115 182);
+  --accentInk: oklch(0.99 0.01 182);
+  --like: oklch(0.58 0.19 20);
+  --shadow: 0 14px 40px -20px oklch(0.2 0.02 265 / 0.28);
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: 'Geist', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--ink);
+}
+
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+@keyframes fmIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fmPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.6) translateY(-30px);
+  }
+}
+
+@keyframes fmShim {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes fmToast {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fmSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fmDot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.22;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+/* Material Symbols */
+.ms {
+  font-family: 'Material Symbols Rounded';
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+
+.ms-fill {
+  font-variation-settings: 'FILL' 1;
+}
+
+/* hover helpers (the prototype's style-hover) */
+.hov-surface:hover {
+  background: var(--surface);
+}
+
+.hov-surface-ink:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.hov-surface2-ink:hover {
+  background: var(--surface2);
+  color: var(--ink);
+}
+
+.hov-surface2:hover {
+  background: var(--surface2);
+}
+
+.hov-ink:hover {
+  color: var(--ink);
+}
+
+.hov-like:hover {
+  color: var(--like);
+}
+
+.hov-lift:hover {
+  transform: translateY(-1px);
+}
+
+.hov-lift2:hover {
+  transform: translateY(-2px);
+}
+
+.hov-accent-line:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.hov-accent-fill:hover {
+  background: var(--accent);
+  color: var(--accentInk);
+}
+
+.hov-pop:hover {
+  background: var(--surface2);
+  transform: scale(1.08);
+}
+
+.hov-accent-shield:hover {
+  color: var(--accent);
+}
+
+.hov-like-line:hover {
+  color: var(--like);
+  border-color: var(--like);
+}
+
+.field:focus {
+  border-color: var(--accent);
+}
