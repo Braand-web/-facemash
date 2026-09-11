@@ -44,9 +44,20 @@ export const score = (post: Post, data: Data, user: UserState): number => {
   );
 };
 
-/** Feed ranking: newest-and-most-engaging first, minus blocked authors and private posts. */
-export const rankedPosts = (data: Data, user: UserState): Post[] =>
+/** A post is out of reach when its author is blocked, or private and not followed. */
+export const visibleToMe = (post: Post, data: Data, user: UserState, meId: string): boolean => {
+  if (user.blocked[post.authorId]) return false;
+  if (post.authorId === meId) return post.visibility !== 'private';
+  if (post.visibility === 'private') return false;
+  if (post.visibility === 'followers' && !user.follows[post.authorId]) return false;
+  const author = data.users.find((u) => u.id === post.authorId);
+  if (author?.isPrivate && !user.follows[post.authorId]) return false;
+  return true;
+};
+
+/** Feed ranking: newest-and-most-engaging first, minus everything out of reach. */
+export const rankedPosts = (data: Data, user: UserState, meId: string): Post[] =>
   data.posts
-    .filter((p) => !user.blocked[p.authorId] && p.visibility !== 'private')
+    .filter((p) => visibleToMe(p, data, user, meId))
     .slice()
     .sort((a, b) => score(b, data, user) - score(a, data, user));

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Icon } from '../components/Icon';
 import { PostCard, usePostMeta } from '../components/PostCard';
+import { PullToRefresh } from '../components/PullToRefresh';
+import { FeedSkeleton } from '../components/Skeletons';
 import { useApp } from '../store';
 import { useOverlays } from '../overlays';
 import { useLayout } from '../viewport';
@@ -84,6 +86,23 @@ function ReelItem({
             {post.text}
           </p>
         </div>
+      ) : post.media[0].url ? (
+        post.media[0].video ? (
+          <video
+            src={post.media[0].url}
+            autoPlay={active && !paused}
+            muted={muted}
+            loop
+            playsInline
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        ) : (
+          <img
+            src={post.media[0].url}
+            alt={post.media[0].label}
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        )
       ) : (
         <span
           style={{
@@ -346,25 +365,26 @@ function ReelItem({
   );
 }
 
+const REEL_PAGE = 5;
+
 function ForYou() {
-  const { data, user, toggleLike } = useApp();
+  const { data, user, t, meId, toggleLike } = useApp();
   const { reelHeight } = useLayout();
-  const posts = useMemo(() => rankedPosts(data, user), [data, user]);
+  const posts = useMemo(() => rankedPosts(data, user, meId), [data, user, meId]);
   const [index, setIndex] = useState(0);
+  const [visible, setVisible] = useState(REEL_PAGE);
   const [progress, setProgress] = useState(0);
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(true);
   const [burst, setBurst] = useState(0);
   const lastTap = useRef(0);
-  const tapTimer = useRef<number | undefined>(undefined);
+  const scroller = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (paused) return;
     const id = window.setInterval(() => setProgress((p) => (p + 0.012 > 1 ? 0 : p + 0.012)), 100);
     return () => window.clearInterval(id);
   }, [paused, index]);
-
-  useEffect(() => () => window.clearTimeout(tapTimer.current), []);
 
   const onScroll = (e: UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -373,30 +393,53 @@ function ForYou() {
       setIndex(next);
       setProgress(0);
       setPaused(false);
+      // Keep a couple of screens of runway rendered ahead of the viewer.
+      if (next >= visible - 3) setVisible((count) => Math.min(posts.length, count + REEL_PAGE));
     }
   };
 
+  // Pause reacts to the first tap; a second tap within the window likes the post and
+  // undoes that pause, so nothing waits on a timer.
   const onTap = (postId: string) => {
     const now = Date.now();
     if (now - lastTap.current < 320) {
       lastTap.current = 0;
-      window.clearTimeout(tapTimer.current);
       if (!user.likes[postId]) toggleLike(postId);
       setBurst((b) => b + 1);
+      setPaused((p) => !p);
       return;
     }
     lastTap.current = now;
-    tapTimer.current = window.setTimeout(() => {
-      if (lastTap.current === now) {
-        lastTap.current = 0;
-        setPaused((p) => !p);
-      }
-    }, 320);
+    setPaused((p) => !p);
+  };
+
+  const step = (direction: 1 | -1) => {
+    const el = scroller.current;
+    if (!el) return;
+    el.scrollBy({ top: direction * el.clientHeight, behavior: 'smooth' });
   };
 
   return (
     <div
+      ref={scroller}
       onScroll={onScroll}
+      tabIndex={0}
+      role="feed"
+      aria-label={t.forYou}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowDown' || e.key === 'PageDown') {
+          e.preventDefault();
+          step(1);
+        }
+        if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+          e.preventDefault();
+          step(-1);
+        }
+        if (e.key === ' ') {
+          e.preventDefault();
+          setPaused((p) => !p);
+        }
+      }}
       style={{
         height: reelHeight(false),
         overflowY: 'auto',
@@ -405,7 +448,7 @@ function ForYou() {
         background: 'oklch(0.115 0.004 265)',
       }}
     >
-      {posts.map((post, i) => (
+      {posts.slice(0, visible).map((post, i) => (
         <ReelItem
           key={post.id}
           post={post}
@@ -422,17 +465,35 @@ function ForYou() {
   );
 }
 
+const FEED_PAGE = 6;
+
 function Following() {
   const navigate = useNavigate();
-  const { data, user, t, meId, openComposer, userById } = useApp();
+  const { data, user, t, meId, openComposer, userById, loading, refresh } = useApp();
   const { openStory } = useOverlays();
+  const [page, setPage] = useState(1);
+  const sentinel = useRef<HTMLDivElement | null>(null);
+
   const posts = data.posts
     .filter((p) => (user.follows[p.authorId] || p.authorId === meId) && !user.blocked[p.authorId])
     .sort((a, b) => b.createdAt - a.createdAt);
   const empty = !data.posts.some((p) => user.follows[p.authorId] || p.authorId === meId);
+  const shown = posts.slice(0, page * FEED_PAGE);
+  const hasMore = shown.length < posts.length;
+
+  useEffect(() => {
+    const node = sentinel.current;
+    if (!node || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => entries[0].isIntersecting && setPage((p) => p + 1),
+      { rootMargin: '400px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore]);
 
   return (
-    <>
+    <PullToRefresh onRefresh={refresh}>
       <div
         style={{
           display: 'flex',
@@ -534,10 +595,16 @@ function Following() {
           </button>
         </div>
       )}
-      {posts.map((post) => (
+      {loading && <FeedSkeleton count={2} />}
+      {shown.map((post) => (
         <PostCard key={post.id} post={post} />
       ))}
-    </>
+      {hasMore && (
+        <div ref={sentinel}>
+          <FeedSkeleton count={1} />
+        </div>
+      )}
+    </PullToRefresh>
   );
 }
 

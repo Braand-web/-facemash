@@ -28,11 +28,17 @@ export interface User {
   location: string;
   followers: number;
   following: number;
+  /** Private accounts hide their posts from everyone who does not follow them. */
+  isPrivate?: boolean;
 }
 
 export interface MediaItem {
   label: string;
   ratio: string;
+  /** Set once the file is uploaded; otherwise the striped placeholder is drawn. */
+  url?: string;
+  /** Distinguishes a video element from an image. */
+  video?: boolean;
 }
 
 export interface Post {
@@ -80,6 +86,7 @@ export interface Message {
   replyTo?: { id: string; text: string };
   sharedPostId?: string;
   sharedText?: string;
+  mediaUrl?: string;
 }
 
 export interface Conversation {
@@ -87,6 +94,8 @@ export interface Conversation {
   userId: string;
   unread: number;
   messages: Message[];
+  /** 0 keeps messages forever; otherwise they disappear after this many seconds. */
+  ephemeralSeconds?: number;
 }
 
 export interface GroupMember {
@@ -102,6 +111,7 @@ export interface Group {
   unread: number;
   members: GroupMember[];
   messages: Message[];
+  ephemeralSeconds?: number;
 }
 
 export interface ChannelPost {
@@ -132,7 +142,8 @@ export type NotificationKind =
   | 'repost'
   | 'mention'
   | 'message'
-  | 'invite';
+  | 'invite'
+  | 'follow_request';
 
 export interface AppNotification {
   id: string;
@@ -143,6 +154,8 @@ export interface AppNotification {
   read: boolean;
   text?: string;
   groupName?: string;
+  /** Follow requests carry their own state so the row can show Accept / Decline. */
+  requestState?: 'pending' | 'accepted' | 'declined';
 }
 
 export interface StoryItem {

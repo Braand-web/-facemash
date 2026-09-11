@@ -77,7 +77,7 @@ export function Explore() {
     return Object.keys(counts).map((tag) => ({ tag, count: counts[tag] }));
   }, [data.posts, q]);
 
-  const popular = useMemo(() => rankedPosts(data, user).slice(0, 9), [data, user]);
+  const popular = useMemo(() => rankedPosts(data, user, meId).slice(0, 9), [data, user, meId]);
   const suggested = data.users.filter((u) => u.id !== meId && !user.blocked[u.id]).slice(0, 4);
   const goTag = (tag: string) => navigate(`/tag/${encodeURIComponent(tag.replace('#', ''))}`);
 

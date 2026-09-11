@@ -119,6 +119,8 @@ export function Profile() {
   const profile = userById(profileId);
   const isMe = profile.id === meId;
   const followed = !!user.follows[profile.id];
+  const requested = !!user.requested[profile.id];
+  const locked = !isMe && !!profile.isPrivate && !followed;
   const authored = data.posts.filter((p) => p.authorId === profile.id);
 
   const listed =
@@ -276,12 +278,18 @@ export function Profile() {
                     borderRadius: 999,
                     fontSize: 14.5,
                     fontWeight: 600,
-                    background: followed ? 'transparent' : 'var(--accent)',
-                    color: followed ? 'var(--ink)' : 'var(--accentInk)',
-                    border: `1px solid ${followed ? 'var(--line)' : 'var(--accent)'}`,
+                    background: followed || requested ? 'transparent' : 'var(--accent)',
+                    color: followed || requested ? 'var(--ink)' : 'var(--accentInk)',
+                    border: `1px solid ${followed || requested ? 'var(--line)' : 'var(--accent)'}`,
                   }}
                 >
-                  {followed ? t.unfollow : t.follow}
+                  {followed
+                    ? t.unfollow
+                    : requested
+                      ? t.requested
+                      : profile.isPrivate
+                        ? t.requestFollow
+                        : t.follow}
                 </button>
               </>
             )}
@@ -298,7 +306,24 @@ export function Profile() {
         >
           {profile.name}
         </h1>
-        <p style={{ margin: 0, color: 'var(--ink3)', fontSize: 14.5 }}>@{profile.username}</p>
+        <p
+          style={{
+            margin: 0,
+            color: 'var(--ink3)',
+            fontSize: 14.5,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          @{profile.username}
+          {profile.isPrivate && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Icon name="lock" size={14} />
+              {t.privateAccount}
+            </span>
+          )}
+        </p>
         {!!profile.bio && (
           <p style={{ margin: '12px 0 0', fontSize: 15, lineHeight: 1.55, textWrap: 'pretty' }}>{profile.bio}</p>
         )}
@@ -353,7 +378,15 @@ export function Profile() {
         </button>
       </div>
 
-      {tab === 'media' ? (
+      {locked ? (
+        <div style={{ padding: '70px 30px', textAlign: 'center', color: 'var(--ink3)' }}>
+          <Icon name="lock" size={38} />
+          <p style={{ margin: '14px 0 4px', fontSize: 15.5, fontWeight: 600, color: 'var(--ink)' }}>
+            {t.privateLocked}
+          </p>
+          <p style={{ margin: 0, fontSize: 14 }}>{t.privateLockedHint}</p>
+        </div>
+      ) : tab === 'media' ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 3, padding: 3 }}>
           {mediaTiles.map((tile, i) => (
             <button

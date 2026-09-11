@@ -7,6 +7,7 @@ import { notificationLabel } from '../lib/i18n';
 import { initials as toInitials, rel } from '../lib/format';
 
 const notificationIcons: Record<string, string> = {
+  follow_request: 'person_alert',
   follow: 'person_add',
   like: 'favorite',
   comment: 'mode_comment',
@@ -19,7 +20,8 @@ const notificationIcons: Record<string, string> = {
 
 export function Notifications() {
   const navigate = useNavigate();
-  const { data, t, lang, userById, markAllNotificationsRead, markNotificationRead } = useApp();
+  const { data, t, lang, userById, markAllNotificationsRead, markNotificationRead, respondToFollowRequest } =
+    useApp();
 
   return (
     <>
@@ -106,6 +108,70 @@ export function Notifications() {
               {!!n.text && (
                 <span style={{ display: 'block', marginTop: 3, fontSize: 13.5, color: 'var(--ink3)' }}>
                   {n.text}
+                </span>
+              )}
+              {n.kind === 'follow_request' && (
+                <span style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  {n.requestState && n.requestState !== 'pending' ? (
+                    <span style={{ fontSize: 13, color: 'var(--ink3)' }}>
+                      {n.requestState === 'accepted' ? t.requestAccepted : t.requestDeclined}
+                    </span>
+                  ) : (
+                    <>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          respondToFollowRequest(n.id, true);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            respondToFollowRequest(n.id, true);
+                          }
+                        }}
+                        style={{
+                          padding: '7px 14px',
+                          borderRadius: 999,
+                          background: 'var(--accent)',
+                          color: 'var(--accentInk)',
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {t.accept}
+                      </span>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          respondToFollowRequest(n.id, false);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            respondToFollowRequest(n.id, false);
+                          }
+                        }}
+                        style={{
+                          padding: '7px 14px',
+                          borderRadius: 999,
+                          border: '1px solid var(--line)',
+                          color: 'var(--ink2)',
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {t.decline}
+                      </span>
+                    </>
+                  )}
                 </span>
               )}
               <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: 'var(--ink3)' }}>

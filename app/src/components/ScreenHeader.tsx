@@ -31,6 +31,7 @@ export function ScreenHeader({
       <button
         className="hov-surface"
         onClick={onBack ?? (() => navigate(-1))}
+        aria-label="Retour"
         style={{
           width: 36,
           height: 36,

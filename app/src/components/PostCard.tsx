@@ -137,23 +137,41 @@ export function PostCard({ post }: { post: Post }) {
             border: '1px solid var(--line)',
           }}
         >
-          <span
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'grid',
-              placeItems: 'center',
-              padding: 20,
-              textAlign: 'center',
-              fontFamily: 'ui-monospace,monospace',
-              fontSize: 11.5,
-              letterSpacing: '0.07em',
-              textTransform: 'uppercase',
-              color: `oklch(0.92 0.02 ${author.hue})`,
-            }}
-          >
-            {post.media[0].label}
-          </span>
+          {post.media[0].url ? (
+            post.media[0].video ? (
+              <video
+                src={post.media[0].url}
+                controls
+                playsInline
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            ) : (
+              <img
+                src={post.media[0].url}
+                alt={post.media[0].label}
+                loading="lazy"
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            )
+          ) : (
+            <span
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'grid',
+                placeItems: 'center',
+                padding: 20,
+                textAlign: 'center',
+                fontFamily: 'ui-monospace,monospace',
+                fontSize: 11.5,
+                letterSpacing: '0.07em',
+                textTransform: 'uppercase',
+                color: `oklch(0.92 0.02 ${author.hue})`,
+              }}
+            >
+              {post.media[0].label}
+            </span>
+          )}
           {post.kind === 'video' && (
             <span
               style={{
@@ -204,23 +222,32 @@ export function PostCard({ post }: { post: Post }) {
                 border: '1px solid var(--line)',
               }}
             >
-              <span
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  display: 'grid',
-                  placeItems: 'center',
-                  padding: 18,
-                  textAlign: 'center',
-                  fontFamily: 'ui-monospace,monospace',
-                  fontSize: 11.5,
-                  letterSpacing: '0.07em',
-                  textTransform: 'uppercase',
-                  color: `oklch(0.92 0.02 ${author.hue})`,
-                }}
-              >
-                {m.label}
-              </span>
+              {m.url ? (
+                <img
+                  src={m.url}
+                  alt={m.label}
+                  loading="lazy"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              ) : (
+                <span
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'grid',
+                    placeItems: 'center',
+                    padding: 18,
+                    textAlign: 'center',
+                    fontFamily: 'ui-monospace,monospace',
+                    fontSize: 11.5,
+                    letterSpacing: '0.07em',
+                    textTransform: 'uppercase',
+                    color: `oklch(0.92 0.02 ${author.hue})`,
+                  }}
+                >
+                  {m.label}
+                </span>
+              )}
               <span
                 style={{
                   position: 'absolute',
@@ -245,6 +272,8 @@ export function PostCard({ post }: { post: Post }) {
         <button
           className="hov-surface"
           onClick={() => toggleLike(post.id)}
+          aria-pressed={meta.liked}
+          aria-label={t.like}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -296,6 +325,7 @@ export function PostCard({ post }: { post: Post }) {
         <button
           className="hov-surface-ink"
           onClick={() => openShare(post.id)}
+          aria-label={t.share}
           style={{
             marginLeft: 'auto',
             width: 38,
@@ -311,6 +341,8 @@ export function PostCard({ post }: { post: Post }) {
         <button
           className="hov-surface"
           onClick={() => toggleSave(post.id)}
+          aria-pressed={meta.saved}
+          aria-label={t.saved}
           style={{
             width: 38,
             height: 38,

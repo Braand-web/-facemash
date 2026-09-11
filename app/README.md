@@ -41,6 +41,19 @@ row or nothing.
 Les variables `VITE_*` sont intégrées au bundle au moment du build : il faut donc
 re-déployer après les avoir changées.
 
+## Confidentialité, médias, temps réel
+
+- **Comptes privés** : bascule dans Paramètres. Suivre un compte privé envoie une demande ;
+  le destinataire l'accepte ou la refuse depuis ses notifications. Les publications d'un
+  compte privé sont masquées côté interface *et* côté RLS.
+- **Médias** : le composer et les pièces jointes acceptent de vrais fichiers. Avec Supabase
+  ils partent dans le bucket `media` (lecture publique, écriture limitée au dossier de
+  l'utilisateur) ; sans backend, un aperçu local le temps de la session.
+- **Temps réel** : abonnements Postgres sur `messages`, `notifications` et `posts`. Un
+  message entrant dans une conversation non silencieuse déclenche une notification
+  navigateur si l'autorisation est accordée (Paramètres).
+- **Éphémère / sourdine / recherche / transfert** : par conversation, dans le menu du fil.
+
 ## Layout rules from the design
 
 - `wide` ≥ 1000px: sidebar instead of the bottom tab bar; the right rail appears ≥ 1280px.

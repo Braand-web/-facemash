@@ -574,6 +574,9 @@ export function Messages() {
                           >
                             {other.name}
                           </span>
+                          {user.muted[convo.id] && (
+                            <Icon name="notifications_off" size={15} color="var(--ink3)" />
+                          )}
                           {user.pins[convo.id] && <Icon name="keep" size={15} fill={1} color="var(--ink3)" />}
                           <span style={{ fontSize: 12, color: 'var(--ink3)' }}>
                             {last ? rel(last.createdAt, lang) : ''}
@@ -677,6 +680,9 @@ export function Messages() {
                         >
                           {group.name}
                         </span>
+                        {user.muted[group.id] && (
+                          <Icon name="notifications_off" size={15} color="var(--ink3)" />
+                        )}
                         {user.pins[group.id] && <Icon name="keep" size={15} fill={1} color="var(--ink3)" />}
                         <span style={{ fontSize: 12, color: 'var(--ink3)' }}>
                           {last ? rel(last.createdAt, lang) : ''}

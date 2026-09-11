@@ -33,6 +33,7 @@ const toUser = (row: Row): User => ({
   location: String(row.location ?? ''),
   followers: Number(row.followers ?? 0),
   following: Number(row.following ?? 0),
+  isPrivate: Boolean(row.is_private),
 });
 
 const toPost = (row: Row): Post => ({
@@ -54,7 +55,12 @@ const toPost = (row: Row): Post => ({
   media: ((row.post_media as Row[] | null) ?? [])
     .slice()
     .sort((a, b) => Number(a.position) - Number(b.position))
-    .map((m) => ({ label: String(m.label), ratio: String(m.ratio) })),
+    .map((m) => ({
+      label: String(m.label),
+      ratio: String(m.ratio),
+      url: (m.url as string | null) ?? undefined,
+      video: Boolean(m.video),
+    })),
 });
 
 const toMessage = (row: Row): Message => ({
@@ -73,6 +79,7 @@ const toMessage = (row: Row): Message => ({
     : undefined,
   sharedPostId: (row.shared_post_id as string | null) ?? undefined,
   sharedText: (row.shared_text as string | null) ?? undefined,
+  mediaUrl: (row.media_url as string | null) ?? undefined,
 });
 
 /** The signed-in user's profile row id, which every other table keys off. */
@@ -107,6 +114,7 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
     reposts,
     follows,
     blocks,
+    requests,
     members,
     messages,
     channels,
@@ -123,6 +131,11 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
     supabase.from('reposts').select('post_id').eq('profile_id', profileId),
     supabase.from('follows').select('following_id').eq('follower_id', profileId),
     supabase.from('blocks').select('blocked_id').eq('blocker_id', profileId),
+    supabase
+      .from('follow_requests')
+      .select('target_id')
+      .eq('requester_id', profileId)
+      .eq('status', 'pending'),
     supabase.from('thread_members').select('*, threads(*)'),
     supabase.from('messages').select('*, message_reactions(icon)'),
     supabase.from('channels').select('*, channel_posts(*, channel_post_media(*))'),
@@ -178,6 +191,7 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
   const groups: Group[] = [];
   const pins: Record<string, boolean> = {};
   const archived: Record<string, boolean> = {};
+  const muted: Record<string, boolean> = {};
   const unreadAt: Record<string, number> = {};
 
   myMemberships.forEach((membership) => {
@@ -186,7 +200,9 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
     const threadId = String(thread.id);
     if (membership.pinned) pins[threadId] = true;
     if (membership.archived) archived[threadId] = true;
+    if (membership.muted) muted[threadId] = true;
     if (Number(membership.unread_at ?? 0) > 0) unreadAt[threadId] = Number(membership.unread_at);
+    const ephemeralSeconds = Number(thread.ephemeral_seconds ?? 0);
 
     if (thread.kind === 'dm') {
       const other = ((members.data as Row[] | null) ?? []).find(
@@ -197,6 +213,7 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
         userId: other ? String(other.profile_id) : profileId,
         unread: Number(membership.unread ?? 0),
         messages: messagesByThread[threadId] ?? [],
+        ephemeralSeconds,
       });
     } else {
       groups.push({
@@ -209,6 +226,7 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
           .filter((row) => String(row.thread_id) === threadId)
           .map((row) => ({ userId: String(row.profile_id), role: String(row.role) as Role })),
         messages: messagesByThread[threadId] ?? [],
+        ephemeralSeconds,
       });
     }
   });
@@ -259,6 +277,7 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
     read: Boolean(row.read),
     text: (row.text as string | null) ?? undefined,
     groupName: (row.group_name as string | null) ?? undefined,
+    requestState: (row.request_state as AppNotification['requestState']) ?? undefined,
   }));
 
   const flags = (rows: Row[] | null, key: string): Record<string, boolean> =>
@@ -283,8 +302,10 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
       reposts: flags(reposts.data as Row[] | null, 'post_id'),
       follows: flags(follows.data as Row[] | null, 'following_id'),
       blocked: flags(blocks.data as Row[] | null, 'blocked_id'),
+      requested: flags(requests.data as Row[] | null, 'target_id'),
       pins,
       archived,
+      muted,
       unreadAt,
       interests: (settingsRow?.interests as string[] | null) ?? [],
     },
@@ -304,6 +325,61 @@ const run = async (label: string, work: () => PromiseLike<{ error: unknown }>) =
   const { error } = await work();
   if (error) console.error(`facemash: ${label} failed`, error);
 };
+
+export interface RealtimeHandlers {
+  onMessage: (threadId: string, message: Message) => void;
+  onMessageUpdate: (threadId: string, message: Message) => void;
+  onMessageDelete: (messageId: string) => void;
+  onNotification: () => void;
+  onPost: () => void;
+}
+
+/**
+ * Live updates for the threads this account belongs to, plus its notifications.
+ * Returns an unsubscribe function; a no-op when there is no backend.
+ */
+export function subscribeRealtime(profileId: string, handlers: RealtimeHandlers): () => void {
+  const client = supabase;
+  if (!client) return () => {};
+
+  const channel = client
+    .channel(`facemash:${profileId}`)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'facemash', table: 'messages' },
+      (payload) => {
+        const row = payload.new as Row;
+        if (String(row.sender_id) === profileId) return;
+        handlers.onMessage(String(row.thread_id), toMessage(row));
+      },
+    )
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'facemash', table: 'messages' },
+      (payload) => {
+        const row = payload.new as Row;
+        handlers.onMessageUpdate(String(row.thread_id), toMessage(row));
+      },
+    )
+    .on(
+      'postgres_changes',
+      { event: 'DELETE', schema: 'facemash', table: 'messages' },
+      (payload) => handlers.onMessageDelete(String((payload.old as Row).id)),
+    )
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'facemash', table: 'notifications', filter: `profile_id=eq.${profileId}` },
+      () => handlers.onNotification(),
+    )
+    .on('postgres_changes', { event: 'INSERT', schema: 'facemash', table: 'posts' }, () =>
+      handlers.onPost(),
+    )
+    .subscribe();
+
+  return () => {
+    void client.removeChannel(channel);
+  };
+}
 
 export const remote = {
   setFlag: (
@@ -380,6 +456,8 @@ export const remote = {
             position,
             label: media.label,
             ratio: media.ratio,
+            url: media.url ?? null,
+            video: !!media.video,
           })),
         ),
       );
@@ -407,6 +485,8 @@ export const remote = {
             position,
             label: media.label,
             ratio: media.ratio,
+            url: media.url ?? null,
+            video: !!media.video,
           })),
         ),
       );
@@ -464,6 +544,7 @@ export const remote = {
         reply_to_text: message.replyTo?.text ?? null,
         shared_post_id: message.sharedPostId ?? null,
         shared_text: message.sharedText ?? null,
+        media_url: message.mediaUrl ?? null,
       }),
     ),
 
@@ -484,10 +565,70 @@ export const remote = {
   deleteMessage: (messageId: string) =>
     run('deleteMessage', () => table('messages').delete().eq('id', messageId)),
 
+  deleteMessages: (messageIds: string[]) =>
+    run('deleteMessages', () => table('messages').delete().in('id', messageIds)),
+
+  setEphemeral: (threadId: string, seconds: number) =>
+    run('setEphemeral', () =>
+      table('threads').update({ ephemeral_seconds: seconds }).eq('id', threadId),
+    ),
+
+  setPrivate: (profileId: string, isPrivate: boolean) =>
+    run('setPrivate', () => table('profiles').update({ is_private: isPrivate }).eq('id', profileId)),
+
+  setFollowRequest: (requesterId: string, targetId: string, on: boolean) =>
+    run('followRequest', () =>
+      on
+        ? table('follow_requests').insert({ requester_id: requesterId, target_id: targetId })
+        : table('follow_requests')
+            .delete()
+            .eq('requester_id', requesterId)
+            .eq('target_id', targetId),
+    ),
+
+  resolveFollowRequest: async (requesterId: string, targetId: string, accept: boolean) => {
+    if (!supabase) return;
+    if (accept) {
+      // Creating the follow row on the requester's behalf needs definer rights.
+      const { error } = await supabase.rpc('accept_follow_request', { requester: requesterId });
+      if (error) console.error('facemash: acceptFollowRequest failed', error);
+      return;
+    }
+    await run('declineFollowRequest', () =>
+      table('follow_requests')
+        .update({ status: 'declined' })
+        .eq('requester_id', requesterId)
+        .eq('target_id', targetId),
+    );
+  },
+
+  /** Uploads to the public media bucket and returns the URL to store on the row. */
+  uploadMedia: async (profileId: string, file: File): Promise<string | null> => {
+    if (!supabase) return null;
+    const extension = file.name.split('.').pop() ?? 'bin';
+    const path = `${profileId}/${crypto.randomUUID()}.${extension}`;
+    const { error } = await supabase.storage.from('media').upload(path, file, {
+      cacheControl: '31536000',
+      upsert: false,
+    });
+    if (error) {
+      console.error('facemash: uploadMedia failed', error);
+      return null;
+    }
+    return supabase.storage.from('media').getPublicUrl(path).data.publicUrl;
+  },
+
   setMembership: (
     threadId: string,
     profileId: string,
-    patch: Partial<{ unread: number; unread_at: number; pinned: boolean; archived: boolean; role: Role }>,
+    patch: Partial<{
+      unread: number;
+      unread_at: number;
+      pinned: boolean;
+      archived: boolean;
+      muted: boolean;
+      role: Role;
+    }>,
   ) =>
     run('setMembership', () =>
       table('thread_members').update(patch).eq('thread_id', threadId).eq('profile_id', profileId),

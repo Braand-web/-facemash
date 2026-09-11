@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { ME, seedData, seedFollows } from './data/seed';
-import { loadProfileId, loadSnapshot, remote, remoteEnabled } from './data/remote';
+import { loadProfileId, loadSnapshot, remote, remoteEnabled, subscribeRealtime } from './data/remote';
 import { supabase } from './lib/supabase';
 import { dict, type Dict } from './lib/i18n';
 import { mmss } from './lib/format';
@@ -21,6 +21,7 @@ import type {
   Data,
   Group,
   Lang,
+  MediaItem,
   Message,
   MessageKind,
   Post,
@@ -44,7 +45,7 @@ export interface ComposerState {
   open: boolean;
   text: string;
   kind: PostKind;
-  media: { label: string; ratio: string }[];
+  media: MediaItem[];
   tags: string;
   visibility: Visibility;
   location: string;
@@ -86,6 +87,9 @@ export interface UserState {
   blocked: Record<string, boolean>;
   pins: Record<string, boolean>;
   archived: Record<string, boolean>;
+  muted: Record<string, boolean>;
+  /** Follow requests this account has sent and that are still pending. */
+  requested: Record<string, boolean>;
   unreadAt: Record<string, number>;
   interests: string[];
 }
@@ -108,6 +112,8 @@ const emptyUserState = (): UserState => ({
   blocked: {},
   pins: {},
   archived: {},
+  muted: {},
+  requested: {},
   unreadAt: {},
   interests: [],
 });
@@ -172,6 +178,10 @@ interface AppValue {
   markUnread: (threadId: string) => void;
   togglePin: (threadId: string) => void;
   toggleArchive: (threadId: string) => void;
+  toggleMute: (threadId: string) => void;
+  setEphemeral: (kind: ThreadKind, threadId: string, seconds: number) => void;
+  purgeExpired: () => void;
+  forwardMessage: (message: Message, target: { kind: ThreadKind; id: string }) => void;
   createGroup: (name: string, description: string) => string;
   leaveGroup: (groupId: string) => void;
   setMemberRole: (groupId: string, userId: string, role: Role) => void;
@@ -182,10 +192,17 @@ interface AppValue {
   /* notifications */
   markAllNotificationsRead: () => void;
   markNotificationRead: (id: string) => void;
+  respondToFollowRequest: (notificationId: string, accept: boolean) => void;
   /* profile */
   saveProfile: (patch: { name: string; bio: string; location: string }) => void;
+  togglePrivateAccount: () => void;
   /* typing simulation */
   typingThreadId: string | null;
+  /* loading */
+  loading: boolean;
+  refresh: () => Promise<void>;
+  /** True when reads and writes go to Supabase rather than local demo state. */
+  syncing: boolean;
   /* transient ui */
   toast: string;
   showToast: (message: string) => void;
@@ -233,12 +250,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [typingThreadId, setTypingThreadId] = useState<string | null>(null);
   const [offline, setOffline] = useState(!navigator.onLine);
   const [remoteProfileId, setRemoteProfileId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const toastTimer = useRef<number | undefined>(undefined);
   // Read in timers and callbacks that must not close over a stale render.
   const composerRef = useRef(composer);
   const dataRef = useRef(data);
+  const userRef = useRef(user);
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
   composerRef.current = composer;
   dataRef.current = data;
+  userRef.current = user;
+
+  /** Browser notification for an incoming message, unless the thread is muted. */
+  const notify = useCallback((threadId: string, message: Message) => {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    if (userRef.current.muted[threadId]) return;
+    const sender = dataRef.current.users.find((u) => u.id === message.from);
+    try {
+      new Notification(sender?.name ?? 'Facemash', {
+        body: message.text ?? message.mediaLabel ?? '',
+        tag: threadId,
+      });
+    } catch {
+      /* some browsers only allow notifications from a service worker */
+    }
+  }, []);
 
   const meId = remoteProfileId ?? ME;
   const syncing = remoteProfileId !== null;
@@ -270,22 +306,94 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     let cancelled = false;
+    setLoading(true);
     void (async () => {
       const profileId = await loadProfileId().catch(() => null);
-      if (cancelled || !profileId) return;
+      if (cancelled || !profileId) {
+        setLoading(false);
+        return;
+      }
       const snapshot = await loadSnapshot(profileId).catch(() => null);
-      if (cancelled || !snapshot) return;
+      if (cancelled || !snapshot) {
+        setLoading(false);
+        return;
+      }
       setRemoteProfileId(profileId);
       setData(snapshot.data);
       setUser(snapshot.user);
       setTheme(snapshot.settings.theme);
       setLang(snapshot.settings.lang);
       setSession((prev) => (prev ? { ...prev, onboarded: snapshot.settings.onboarded } : prev));
+      setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
   }, [session?.authId]);
+
+  // Live updates once the account is connected: new messages land without a refresh,
+  // and an unmuted incoming message raises a browser notification when permitted.
+  useEffect(() => {
+    if (!remoteProfileId) return;
+    return subscribeRealtime(remoteProfileId, {
+      onMessage: (threadId, message) => {
+        setData((prev) => {
+          const inConversation = prev.conversations.some((c) => c.id === threadId);
+          const known = inConversation || prev.groups.some((g) => g.id === threadId);
+          if (!known) return prev;
+          const add = <T extends { id: string; messages: Message[]; unread: number }>(thread: T): T =>
+            thread.id !== threadId || thread.messages.some((m) => m.id === message.id)
+              ? thread
+              : { ...thread, messages: [...thread.messages, message], unread: thread.unread + 1 };
+          return {
+            ...prev,
+            conversations: prev.conversations.map(add),
+            groups: prev.groups.map(add),
+          };
+        });
+        notify(threadId, message);
+      },
+      onMessageUpdate: (threadId, message) => {
+        const replace = <T extends { id: string; messages: Message[] }>(thread: T): T =>
+          thread.id !== threadId
+            ? thread
+            : { ...thread, messages: thread.messages.map((m) => (m.id === message.id ? message : m)) };
+        setData((prev) => ({
+          ...prev,
+          conversations: prev.conversations.map(replace),
+          groups: prev.groups.map(replace),
+        }));
+      },
+      onMessageDelete: (messageId) => {
+        const strip = <T extends { messages: Message[] }>(thread: T): T => ({
+          ...thread,
+          messages: thread.messages.filter((m) => m.id !== messageId),
+        });
+        setData((prev) => ({
+          ...prev,
+          conversations: prev.conversations.map(strip),
+          groups: prev.groups.map(strip),
+        }));
+      },
+      onNotification: () => void refreshRef.current(),
+      onPost: () => void refreshRef.current(),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remoteProfileId]);
+
+  /** Pull-to-refresh: re-read the backend, or just let the gesture settle in demo mode. */
+  const refresh = useCallback(async () => {
+    if (!remoteProfileId) {
+      await new Promise((resolve) => window.setTimeout(resolve, 600));
+      return;
+    }
+    const snapshot = await loadSnapshot(remoteProfileId).catch(() => null);
+    if (!snapshot) return;
+    setData(snapshot.data);
+    setUser(snapshot.user);
+  }, [remoteProfileId]);
+
+  refreshRef.current = refresh;
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -328,7 +436,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const me = userById(meId);
 
   const toggleFlag = useCallback(
-    (key: 'likes' | 'saves' | 'reposts' | 'follows' | 'blocked' | 'pins' | 'archived', id: string) => {
+    (
+      key: 'likes' | 'saves' | 'reposts' | 'follows' | 'blocked' | 'pins' | 'archived' | 'muted' | 'requested',
+      id: string,
+    ) => {
       setUser((prev) => {
         const next = { ...prev[key] };
         if (next[id]) delete next[id];
@@ -369,13 +480,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [toggleFlag, user.reposts, syncing, meId],
   );
 
+  /**
+   * Following a private account sends a request instead; tapping again withdraws it.
+   * Everything else follows straight away.
+   */
   const toggleFollow = useCallback(
     (userId: string) => {
-      const on = !user.follows[userId];
+      const following = !!user.follows[userId];
+      const target = data.users.find((u) => u.id === userId);
+
+      if (!following && target?.isPrivate) {
+        const pending = !!user.requested[userId];
+        toggleFlag('requested', userId);
+        if (!pending) showToast(t.requested);
+        if (syncing) void remote.setFollowRequest(meId, userId, !pending);
+        return;
+      }
+
       toggleFlag('follows', userId);
-      if (syncing) void remote.setFollow(meId, userId, on);
+      if (syncing) void remote.setFollow(meId, userId, !following);
     },
-    [toggleFlag, user.follows, syncing, meId],
+    [toggleFlag, user.follows, user.requested, data.users, syncing, meId, showToast, t],
+  );
+
+  const toggleMute = useCallback(
+    (threadId: string) => {
+      const on = !user.muted[threadId];
+      toggleFlag('muted', threadId);
+      if (syncing) void remote.setMembership(threadId, meId, { muted: on });
+    },
+    [toggleFlag, user.muted, syncing, meId],
   );
 
   const togglePin = useCallback(
@@ -902,6 +1036,59 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [data.posts, meId, patchThread, showToast, t, syncing],
   );
 
+  /** Disappearing messages, per conversation. 0 turns the timer off. */
+  const setEphemeral = useCallback(
+    (kind: ThreadKind, threadId: string, seconds: number) => {
+      setData((prev) => ({
+        ...prev,
+        conversations: prev.conversations.map((c) =>
+          c.id === threadId ? { ...c, ephemeralSeconds: seconds } : c,
+        ),
+        groups: prev.groups.map((g) => (g.id === threadId ? { ...g, ephemeralSeconds: seconds } : g)),
+      }));
+      if (syncing) void remote.setEphemeral(threadId, seconds);
+      void kind;
+    },
+    [syncing],
+  );
+
+  /** Drops messages whose disappearing window has passed, in state and in the database. */
+  const purgeExpired = useCallback(() => {
+    const now = Date.now();
+    const expired: string[] = [];
+    const keep = (thread: { ephemeralSeconds?: number; messages: Message[] }) => {
+      if (!thread.ephemeralSeconds) return thread.messages;
+      const cutoff = now - thread.ephemeralSeconds * 1000;
+      const survivors = thread.messages.filter((m) => m.createdAt >= cutoff);
+      thread.messages.forEach((m) => m.createdAt < cutoff && expired.push(m.id));
+      return survivors;
+    };
+    setData((prev) => ({
+      ...prev,
+      conversations: prev.conversations.map((c) => ({ ...c, messages: keep(c) })),
+      groups: prev.groups.map((g) => ({ ...g, messages: keep(g) })),
+    }));
+    if (syncing && expired.length) void remote.deleteMessages(expired);
+  }, [syncing]);
+
+  const forwardMessage = useCallback(
+    (message: Message, target: { kind: ThreadKind; id: string }) => {
+      const copy: Message = {
+        ...message,
+        id: newId(),
+        from: meId,
+        createdAt: Date.now(),
+        status: 'sent',
+        reactions: [],
+        replyTo: undefined,
+      };
+      patchThread(target.kind, target.id, (messages) => [...messages, copy]);
+      showToast(t.forwarded);
+      if (syncing) void remote.addMessage(target.id, copy);
+    },
+    [meId, patchThread, showToast, t, syncing],
+  );
+
   const markAllNotificationsRead = useCallback(() => {
     setData((prev) => ({
       ...prev,
@@ -920,6 +1107,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [syncing, meId],
   );
+
+  /** Accept or decline a follow request that arrived in the notifications list. */
+  const respondToFollowRequest = useCallback(
+    (notificationId: string, accept: boolean) => {
+      const notification = dataRef.current.notifications.find((n) => n.id === notificationId);
+      if (!notification) return;
+      setData((prev) => ({
+        ...prev,
+        notifications: prev.notifications.map((n) =>
+          n.id === notificationId ? { ...n, read: true, requestState: accept ? 'accepted' : 'declined' } : n,
+        ),
+        users: accept
+          ? prev.users.map((u) =>
+              u.id === meId ? { ...u, followers: u.followers + 1 } : u,
+            )
+          : prev.users,
+      }));
+      showToast(accept ? t.requestAccepted : t.requestDeclined);
+      if (syncing) void remote.resolveFollowRequest(notification.userId, meId, accept);
+    },
+    [meId, showToast, t, syncing],
+  );
+
+  const togglePrivateAccount = useCallback(() => {
+    const next = !dataRef.current.users.find((u) => u.id === meId)?.isPrivate;
+    setData((prev) => ({
+      ...prev,
+      users: prev.users.map((u) => (u.id === meId ? { ...u, isPrivate: next } : u)),
+    }));
+    if (syncing) void remote.setPrivate(meId, next);
+  }, [meId, syncing]);
 
   const saveProfile = useCallback(
     (patch: { name: string; bio: string; location: string }) => {
@@ -1037,6 +1255,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     markUnread,
     togglePin,
     toggleArchive,
+    toggleMute,
+    setEphemeral,
+    purgeExpired,
+    forwardMessage,
     createGroup,
     leaveGroup,
     setMemberRole,
@@ -1046,8 +1268,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     sharePost,
     markAllNotificationsRead,
     markNotificationRead,
+    respondToFollowRequest,
     saveProfile,
+    togglePrivateAccount,
     typingThreadId,
+    loading,
+    refresh,
+    syncing,
     toast,
     showToast,
     offline,

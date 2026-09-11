@@ -28,11 +28,12 @@ export function useSuggested(limit = 4): User[] {
 }
 
 function useNavItems() {
-  const { t, data } = useApp();
+  const { t, data, user } = useApp();
   const location = useLocation();
+  // Muted conversations still receive messages; they just stop asking for attention.
   const unreadMessages =
-    data.conversations.reduce((total, c) => total + c.unread, 0) +
-    data.groups.reduce((total, g) => total + g.unread, 0);
+    data.conversations.reduce((total, c) => total + (user.muted[c.id] ? 0 : c.unread), 0) +
+    data.groups.reduce((total, g) => total + (user.muted[g.id] ? 0 : g.unread), 0);
   const path = location.pathname;
   const items = [
     { key: 'home', icon: 'home', label: t.home, to: '/', active: path === '/' || path === '/following' },
@@ -90,6 +91,7 @@ function Sidebar() {
           key={item.key}
           className="hov-surface"
           onClick={() => (item.to ? navigate(item.to) : openComposer())}
+          aria-current={item.active ? 'page' : undefined}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -221,6 +223,7 @@ function TabBar() {
 
   return (
     <nav
+      aria-label="Navigation principale"
       style={{
         position: 'fixed',
         left: 0,
@@ -240,6 +243,8 @@ function TabBar() {
         <button
           key={item.key}
           onClick={() => (item.to ? navigate(item.to) : openComposer())}
+          aria-current={item.active ? 'page' : undefined}
+          aria-label={item.label}
           style={{
             display: 'flex',
             flexDirection: 'column',
@@ -463,7 +468,10 @@ export function Shell() {
             paddingBottom: messengerMode ? 0 : wide ? 40 : 96,
           }}
         >
-          <Outlet />
+          {/* Keyed on the route so each screen fades in instead of snapping. */}
+          <div key={messengerMode ? 'messages' : location.pathname} className="screen">
+            <Outlet />
+          </div>
         </main>
         {showRail && <RightRail />}
       </div>

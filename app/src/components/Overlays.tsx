@@ -1,8 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Avatar, Icon } from './Icon';
 import { useApp } from '../store';
 import { useOverlays } from '../overlays';
+import { useDialog } from '../lib/dialog';
+import { uploadFile } from '../lib/upload';
 import { initials as toInitials, rel } from '../lib/format';
 import type { PostKind, Visibility } from '../types';
 
@@ -25,8 +27,39 @@ const backdrop = {
 } as const;
 
 function Composer() {
-  const { t, composer, setComposer, closeComposer, publish } = useApp();
+  const { t, composer, setComposer, closeComposer, publish, meId, syncing, showToast } = useApp();
   const navigate = useNavigate();
+  const panel = useDialog<HTMLDivElement>(closeComposer);
+  const filePicker = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  // The upload is async, so the handler reads the latest media list from a ref.
+  const composerMediaRef = useRef(composer.media);
+  composerMediaRef.current = composer.media;
+
+  const onFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setUploading(true);
+    try {
+      const uploaded = await Promise.all(
+        Array.from(files).map((file) => uploadFile(file, meId, syncing)),
+      );
+      setComposer({
+        media: [
+          ...composerMediaRef.current,
+          ...uploaded.map((item) => ({
+            label: item.label,
+            ratio: item.ratio,
+            url: item.url,
+            video: item.video,
+          })),
+        ],
+      });
+      if (uploaded.some((item) => item.local) && syncing) showToast(t.uploadErr);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   if (!composer.open) return null;
 
   const field = {
@@ -54,6 +87,11 @@ function Composer() {
   return (
     <div style={{ ...backdrop, zIndex: 70, background: 'oklch(0.1 0 0 / 0.55)', backdropFilter: 'blur(3px)' }}>
       <div
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t.create}
+        tabIndex={-1}
         style={{
           ...sheetShell,
           maxWidth: 560,
@@ -189,24 +227,41 @@ function Composer() {
                     border: '1px solid var(--line)',
                   }}
                 >
-                  <span
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      display: 'grid',
-                      placeItems: 'center',
-                      padding: 9,
-                      fontFamily: 'ui-monospace,monospace',
-                      fontSize: 9.5,
-                      lineHeight: 1.35,
-                      letterSpacing: '0.04em',
-                      textTransform: 'uppercase',
-                      color: 'var(--ink3)',
-                      textAlign: 'center',
-                    }}
-                  >
-                    {item.label}
-                  </span>
+                  {item.url ? (
+                    item.video ? (
+                      <video
+                        src={item.url}
+                        muted
+                        playsInline
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <img
+                        src={item.url}
+                        alt={item.label}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    )
+                  ) : (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'grid',
+                        placeItems: 'center',
+                        padding: 9,
+                        fontFamily: 'ui-monospace,monospace',
+                        fontSize: 9.5,
+                        lineHeight: 1.35,
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                        color: 'var(--ink3)',
+                        textAlign: 'center',
+                      }}
+                    >
+                      {item.label}
+                    </span>
+                  )}
                   <button
                     onClick={() => setComposer({ media: composer.media.filter((_, j) => j !== i) })}
                     style={{
@@ -227,16 +282,8 @@ function Composer() {
                 </div>
               ))}
               <button
-                onClick={() =>
-                  setComposer({
-                    media: [
-                      ...composer.media,
-                      composer.kind === 'video'
-                        ? { label: 'vidéo 9:16 · nouvelle capture', ratio: '9/16' }
-                        : { label: `photo · nouvel envoi ${composer.media.length + 1}`, ratio: '4/5' },
-                    ],
-                  })
-                }
+                onClick={() => filePicker.current?.click()}
+                disabled={uploading}
                 style={{
                   flex: '0 0 116px',
                   aspectRatio: '4/5',
@@ -250,9 +297,20 @@ function Composer() {
                   color: 'var(--ink3)',
                 }}
               >
-                <Icon name="add_photo_alternate" size={24} />
-                <span style={{ fontSize: 11.5 }}>{t.addMedia}</span>
+                <Icon name={uploading ? 'progress_activity' : 'add_photo_alternate'} size={24} />
+                <span style={{ fontSize: 11.5 }}>{uploading ? t.uploading : t.addMedia}</span>
               </button>
+              <input
+                ref={filePicker}
+                type="file"
+                accept={composer.kind === 'video' ? 'video/*' : 'image/*'}
+                multiple={composer.kind !== 'video'}
+                onChange={(e) => {
+                  void onFiles(e.target.files);
+                  e.target.value = '';
+                }}
+                style={{ display: 'none' }}
+              />
             </div>
           )}
 
@@ -508,6 +566,7 @@ function StoryViewer() {
 function ShareSheet() {
   const { data, t, userById, sharePost, showToast } = useApp();
   const { sharePostId, closeShare } = useOverlays();
+  const panel = useDialog<HTMLDivElement>(closeShare);
   if (!sharePostId) return null;
 
   const targets = [
@@ -527,6 +586,11 @@ function ShareSheet() {
   return (
     <div onClick={closeShare} style={{ ...backdrop, zIndex: 75 }}>
       <div
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t.sendTo}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{ ...sheetShell, padding: '18px 0 22px', animation: 'fmIn .26s ease both' }}
       >
@@ -603,8 +667,10 @@ function ShareSheet() {
 
 function ActionSheet() {
   const navigate = useNavigate();
-  const { t, deletePost, blockUser, editPost, showToast, togglePin, toggleArchive, markUnread } = useApp();
+  const { t, deletePost, blockUser, editPost, showToast, togglePin, toggleArchive, markUnread, toggleMute, user } =
+    useApp();
   const { sheet, closeSheet } = useOverlays();
+  const panel = useDialog<HTMLDivElement>(closeSheet);
   if (!sheet) return null;
 
   const items: { icon: string; label: string; danger?: boolean; run: () => void }[] = [];
@@ -699,11 +765,25 @@ function ActionSheet() {
         closeSheet();
       },
     });
+    const muted = !!user.muted[sheet.id];
+    items.push({
+      icon: muted ? 'notifications_active' : 'notifications_off',
+      label: muted ? t.unmute : t.mute,
+      run: () => {
+        toggleMute(sheet.id);
+        closeSheet();
+      },
+    });
   }
 
   return (
     <div onClick={closeSheet} style={{ ...backdrop, zIndex: 75 }}>
       <div
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t.settings}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{
           ...sheetShell,
