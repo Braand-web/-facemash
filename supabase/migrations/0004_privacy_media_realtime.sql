@@ -3,6 +3,8 @@
 
 alter table facemash.profiles add column if not exists is_private boolean not null default false;
 alter table facemash.thread_members add column if not exists muted boolean not null default false;
+grant update (is_private) on facemash.profiles to authenticated;
+grant update (muted) on facemash.thread_members to authenticated;
 alter table facemash.threads add column if not exists ephemeral_seconds integer not null default 0;
 alter table facemash.post_media add column if not exists url text;
 alter table facemash.post_media add column if not exists video boolean not null default false;
@@ -25,12 +27,22 @@ alter table facemash.follow_requests enable row level security;
 create policy follow_requests_read on facemash.follow_requests
   for select to authenticated using (requester_id = facemash.me() or target_id = facemash.me());
 create policy follow_requests_insert on facemash.follow_requests
-  for insert to authenticated with check (requester_id = facemash.me());
+  for insert to authenticated with check (
+    requester_id = facemash.me()
+    and exists (
+      select 1 from facemash.profiles p
+      where p.id = target_id and p.is_private
+    )
+  );
 create policy follow_requests_update on facemash.follow_requests
   for update to authenticated using (target_id = facemash.me())
-  with check (target_id = facemash.me());
+  with check (target_id = facemash.me() and status = 'declined');
 create policy follow_requests_delete on facemash.follow_requests
   for delete to authenticated using (requester_id = facemash.me());
+
+-- Accepting is only possible through the checked RPC below; direct table updates may decline.
+revoke update on facemash.follow_requests from authenticated;
+grant update (status) on facemash.follow_requests to authenticated;
 
 -- Accepting inserts a follow on behalf of the requester, which their own policy
 -- cannot do, so it runs here with definer rights after checking the caller.
@@ -56,6 +68,7 @@ begin
 end;
 $$;
 
+revoke all on function facemash.accept_follow_request(uuid) from public, anon;
 grant execute on function facemash.accept_follow_request(uuid) to authenticated;
 
 -- ---------------------------------------------------- notification feeds --
@@ -157,6 +170,37 @@ create policy posts_read on facemash.posts
           select 1 from facemash.follows f2
           where f2.follower_id = facemash.me() and f2.following_id = posts.author_id
         )
+      )
+    )
+  );
+
+-- A private profile cannot be followed directly; it must approve its request.
+drop policy if exists follows_write_own on facemash.follows;
+create policy follows_write_own on facemash.follows
+  for all to authenticated
+  using (follower_id = facemash.me())
+  with check (
+    follower_id = facemash.me()
+    and not exists (
+      select 1 from facemash.profiles p
+      where p.id = following_id and p.is_private
+    )
+  );
+
+-- Expired stories and stories belonging to private accounts stay hidden from non-followers.
+drop policy if exists stories_read on facemash.stories;
+create policy stories_read on facemash.stories
+  for select to authenticated using (
+    expires_at > now()
+    and (
+      author_id = facemash.me()
+      or not exists (
+        select 1 from facemash.profiles p
+        where p.id = stories.author_id and p.is_private
+      )
+      or exists (
+        select 1 from facemash.follows f
+        where f.follower_id = facemash.me() and f.following_id = stories.author_id
       )
     )
   );

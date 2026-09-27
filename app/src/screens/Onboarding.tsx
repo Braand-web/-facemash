@@ -57,7 +57,7 @@ export function Onboarding() {
       <h1
         style={{
           margin: '0 0 8px',
-          fontFamily: "'Bricolage Grotesque',sans-serif",
+          fontFamily: 'var(--font-display)',
           fontSize: 26,
           fontWeight: 700,
           letterSpacing: '-0.025em',
@@ -93,7 +93,7 @@ export function Onboarding() {
               color: 'oklch(0.16 0.03 265)',
               display: 'grid',
               placeItems: 'center',
-              fontFamily: "'Bricolage Grotesque',sans-serif",
+              fontFamily: 'var(--font-display)',
               fontSize: 38,
               fontWeight: 700,
               position: 'relative',

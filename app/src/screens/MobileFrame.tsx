@@ -8,7 +8,7 @@ export function MobileFrame() {
     <div
       style={{
         minHeight: '100dvh',
-        background: 'oklch(0.955 0.004 265)',
+        background: 'var(--bg)',
         padding: '40px 20px 56px',
         display: 'flex',
         flexDirection: 'column',
@@ -20,11 +20,11 @@ export function MobileFrame() {
         <h1
           style={{
             margin: '0 0 8px',
-            fontFamily: "'Bricolage Grotesque',sans-serif",
+            fontFamily: 'var(--font-display)',
             fontSize: 26,
-            fontWeight: 800,
+            fontWeight: 700,
             letterSpacing: '-0.03em',
-            color: 'oklch(0.22 0.012 265)',
+            color: 'var(--ink)',
           }}
         >
           Facemash sur mobile
@@ -34,7 +34,7 @@ export function MobileFrame() {
             margin: 0,
             fontSize: 14.5,
             lineHeight: 1.6,
-            color: 'oklch(0.42 0.012 265)',
+            color: 'var(--ink2)',
             textWrap: 'pretty',
           }}
         >
@@ -44,6 +44,7 @@ export function MobileFrame() {
       </header>
 
       <div
+        className="mobile-frame-device"
         style={{
           position: 'relative',
           width: 424,
@@ -51,9 +52,8 @@ export function MobileFrame() {
           flex: '0 0 auto',
           borderRadius: 54,
           padding: 11,
-          background: 'linear-gradient(160deg, oklch(0.42 0.008 265), oklch(0.28 0.006 265))',
-          boxShadow:
-            '0 44px 90px -30px oklch(0.25 0.02 265 / 0.45), 0 0 0 1px oklch(0.20 0.01 265 / 0.35)',
+          background: 'var(--surface3)',
+          boxShadow: 'var(--shadow), 0 0 0 1px var(--line)',
         }}
       >
         <div
@@ -64,7 +64,7 @@ export function MobileFrame() {
             height: '100%',
             borderRadius: 42,
             overflow: 'hidden',
-            background: '#000',
+            background: 'var(--bg)',
           }}
         >
           <div

@@ -14,6 +14,7 @@ export function ScreenHeader({
   const navigate = useNavigate();
   return (
     <header
+      className="screen-header"
       style={{
         position: 'sticky',
         top: 0,
@@ -47,7 +48,7 @@ export function ScreenHeader({
         style={{
           margin: 0,
           flex: 1,
-          fontFamily: "'Bricolage Grotesque',sans-serif",
+          fontFamily: 'var(--font-display)',
           fontSize: 19,
           fontWeight: 700,
           letterSpacing: '-0.02em',

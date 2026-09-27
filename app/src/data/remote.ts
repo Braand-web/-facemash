@@ -517,15 +517,28 @@ export const remote = {
       console.error('facemash: createThread failed', error);
       return;
     }
-    await run('createThread members', () =>
-      table('thread_members').insert(
-        thread.members.map((member) => ({
-          thread_id: thread.id,
-          profile_id: member.profileId,
-          role: member.role,
-        })),
-      ),
-    );
+    const { error: ownerError } = await table('thread_members').insert({
+      thread_id: thread.id,
+      profile_id: thread.createdBy,
+      role: 'owner',
+    });
+    if (ownerError) {
+      console.error('facemash: createThread owner failed', ownerError);
+      return;
+    }
+
+    const invitedMembers = thread.members.filter((member) => member.profileId !== thread.createdBy);
+    if (invitedMembers.length) {
+      await run('createThread members', () =>
+        table('thread_members').insert(
+          invitedMembers.map((member) => ({
+            thread_id: thread.id,
+            profile_id: member.profileId,
+            role: member.role,
+          })),
+        ),
+      );
+    }
   },
 
   addMessage: (threadId: string, message: Message) =>
@@ -618,7 +631,7 @@ export const remote = {
     return supabase.storage.from('media').getPublicUrl(path).data.publicUrl;
   },
 
-  setMembership: (
+  setMembership: async (
     threadId: string,
     profileId: string,
     patch: Partial<{
@@ -629,15 +642,39 @@ export const remote = {
       muted: boolean;
       role: Role;
     }>,
-  ) =>
-    run('setMembership', () =>
-      table('thread_members').update(patch).eq('thread_id', threadId).eq('profile_id', profileId),
-    ),
+  ) => {
+    const client = supabase;
+    if (!client) return;
+    const { role, ...membershipPatch } = patch;
+    if (Object.keys(membershipPatch).length) {
+      await run('setMembership', () =>
+        table('thread_members')
+          .update(membershipPatch)
+          .eq('thread_id', threadId)
+          .eq('profile_id', profileId),
+      );
+    }
+    if (role) {
+      await run('setMembership role', () =>
+        client.rpc('set_thread_member_role', {
+          target_thread: threadId,
+          target_profile: profileId,
+          new_role: role,
+        }),
+      );
+    }
+  },
 
-  removeMember: (threadId: string, profileId: string) =>
-    run('removeMember', () =>
-      table('thread_members').delete().eq('thread_id', threadId).eq('profile_id', profileId),
-    ),
+  removeMember: async (threadId: string, profileId: string) => {
+    const client = supabase;
+    if (!client) return;
+    await run('removeMember', () =>
+      client.rpc('remove_thread_member', {
+        target_thread: threadId,
+        target_profile: profileId,
+      }),
+    );
+  },
 
   setChannelSubscription: (channelId: string, profileId: string, on: boolean) =>
     run('subscribeChannel', () =>

@@ -33,6 +33,9 @@ as $$
   select id from facemash.profiles where auth_id = auth.uid();
 $$;
 
+revoke all on function facemash.me() from public, anon;
+grant execute on function facemash.me() to authenticated;
+
 create or replace function facemash.handle_new_user()
 returns trigger
 language plpgsql
@@ -286,6 +289,130 @@ as $$
   );
 $$;
 
+revoke all on function facemash.is_member(uuid) from public, anon;
+grant execute on function facemash.is_member(uuid) to authenticated;
+
+-- Role changes and removing other members go through these checked RPCs.
+create or replace function facemash.set_thread_member_role(
+  target_thread uuid,
+  target_profile uuid,
+  new_role text
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  actor uuid := facemash.me();
+  actor_role text;
+  previous_role text;
+begin
+  if actor is null then
+    raise exception using errcode = '42501', message = 'not authenticated';
+  end if;
+
+  select m.role into actor_role
+  from facemash.thread_members m
+  where m.thread_id = target_thread and m.profile_id = actor;
+
+  if actor_role is distinct from 'owner' then
+    raise exception using errcode = '42501', message = 'only the group owner can change roles';
+  end if;
+  if new_role is null or new_role not in ('owner', 'admin', 'member') then
+    raise exception using errcode = '22023', message = 'invalid member role';
+  end if;
+
+  select m.role into previous_role
+  from facemash.thread_members m
+  where m.thread_id = target_thread and m.profile_id = target_profile;
+
+  if not found then
+    raise exception using errcode = 'P0002', message = 'thread member not found';
+  end if;
+
+  if previous_role = 'owner' and new_role <> 'owner' and not exists (
+    select 1 from facemash.thread_members m
+    where m.thread_id = target_thread and m.role = 'owner'
+      and m.profile_id <> target_profile
+  ) then
+    raise exception using errcode = '23514', message = 'a group must keep an owner';
+  end if;
+
+  update facemash.thread_members
+  set role = new_role
+  where thread_id = target_thread and profile_id = target_profile;
+end;
+$$;
+
+create or replace function facemash.remove_thread_member(
+  target_thread uuid,
+  target_profile uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  actor uuid := facemash.me();
+  actor_role text;
+  target_role text;
+  next_owner uuid;
+begin
+  if actor is null then
+    raise exception using errcode = '42501', message = 'not authenticated';
+  end if;
+
+  select m.role into actor_role
+  from facemash.thread_members m
+  where m.thread_id = target_thread and m.profile_id = actor;
+
+  if actor_role is null then
+    raise exception using errcode = '42501', message = 'not a member of this thread';
+  end if;
+
+  select m.role into target_role
+  from facemash.thread_members m
+  where m.thread_id = target_thread and m.profile_id = target_profile;
+
+  if target_role is null then
+    raise exception using errcode = 'P0002', message = 'thread member not found';
+  end if;
+  if target_profile <> actor and actor_role not in ('owner', 'admin') then
+    raise exception using errcode = '42501', message = 'only a group admin can remove another member';
+  end if;
+  if target_profile <> actor and actor_role = 'admin' and target_role <> 'member' then
+    raise exception using errcode = '42501', message = 'admins can remove members only';
+  end if;
+  if target_role = 'owner' and not exists (
+    select 1 from facemash.thread_members m
+    where m.thread_id = target_thread and m.role = 'owner'
+      and m.profile_id <> target_profile
+  ) then
+    select m.profile_id into next_owner
+    from facemash.thread_members m
+    where m.thread_id = target_thread and m.profile_id <> target_profile
+    order by m.profile_id
+    limit 1;
+
+    if next_owner is not null then
+      update facemash.thread_members
+      set role = 'owner'
+      where thread_id = target_thread and profile_id = next_owner;
+    end if;
+  end if;
+
+  delete from facemash.thread_members
+  where thread_id = target_thread and profile_id = target_profile;
+end;
+$$;
+
+revoke all on function facemash.set_thread_member_role(uuid, uuid, text) from public, anon;
+revoke all on function facemash.remove_thread_member(uuid, uuid) from public, anon;
+grant execute on function facemash.set_thread_member_role(uuid, uuid, text) to authenticated;
+grant execute on function facemash.remove_thread_member(uuid, uuid) to authenticated;
+
 -- -------------------------------------------------------------- channels --
 create table facemash.channels (
   id uuid primary key default gen_random_uuid(),
@@ -477,15 +604,24 @@ create policy thread_members_read on facemash.thread_members
   for select to authenticated using (facemash.is_member(thread_id) or profile_id = facemash.me());
 create policy thread_members_insert on facemash.thread_members
   for insert to authenticated with check (
-    profile_id = facemash.me()
-    or facemash.is_member(thread_id)
-    or exists (select 1 from facemash.threads t where t.id = thread_id and t.created_by = facemash.me())
+    facemash.is_member(thread_id)
+    or (
+      profile_id = facemash.me()
+      and exists (
+        select 1 from facemash.threads t
+        where t.id = thread_id and t.created_by = facemash.me()
+      )
+      and not exists (
+        select 1 from facemash.thread_members existing
+        where existing.thread_id = thread_members.thread_id
+      )
+    )
   );
 create policy thread_members_update on facemash.thread_members
-  for update to authenticated using (profile_id = facemash.me() or facemash.is_member(thread_id))
-  with check (profile_id = facemash.me() or facemash.is_member(thread_id));
+  for update to authenticated using (profile_id = facemash.me())
+  with check (profile_id = facemash.me());
 create policy thread_members_delete on facemash.thread_members
-  for delete to authenticated using (profile_id = facemash.me() or facemash.is_member(thread_id));
+  for delete to authenticated using (profile_id = facemash.me());
 
 create policy messages_read on facemash.messages
   for select to authenticated using (facemash.is_member(thread_id));
@@ -501,7 +637,21 @@ create policy message_reactions_read on facemash.message_reactions
     exists (select 1 from facemash.messages m where m.id = message_reactions.message_id and facemash.is_member(m.thread_id))
   );
 create policy message_reactions_own on facemash.message_reactions
-  for all to authenticated using (profile_id = facemash.me()) with check (profile_id = facemash.me());
+  for all to authenticated
+  using (
+    profile_id = facemash.me()
+    and exists (
+      select 1 from facemash.messages m
+      where m.id = message_reactions.message_id and facemash.is_member(m.thread_id)
+    )
+  )
+  with check (
+    profile_id = facemash.me()
+    and exists (
+      select 1 from facemash.messages m
+      where m.id = message_reactions.message_id and facemash.is_member(m.thread_id)
+    )
+  );
 
 create policy channels_read on facemash.channels
   for select to authenticated using (true);
@@ -535,6 +685,13 @@ create policy reports_insert_own on facemash.reports
 grant select, insert, update, delete on all tables in schema facemash to authenticated;
 grant select on all tables in schema facemash to anon;
 grant usage on all sequences in schema facemash to authenticated;
+
+-- Keep application updates to user-editable fields; counters and identifiers are server-owned.
+revoke update on facemash.profiles, facemash.posts, facemash.messages, facemash.thread_members from authenticated;
+grant update (name, bio, location) on facemash.profiles to authenticated;
+grant update (text, tags, visibility, location) on facemash.posts to authenticated;
+grant update (status) on facemash.messages to authenticated;
+grant update (unread, unread_at, pinned, archived) on facemash.thread_members to authenticated;
 
 alter default privileges in schema facemash
   grant select, insert, update, delete on tables to authenticated;

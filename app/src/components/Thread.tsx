@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from './Icon';
+import { mediaTone } from '../lib/mediaTone';
 import { useApp } from '../store';
 import { useLayout } from '../viewport';
 import { useDraft } from '../lib/drafts';
@@ -9,7 +10,7 @@ import { fileSize, uploadFile } from '../lib/upload';
 import { dayLabel, fmt, initials as toInitials, mmss, recordingBars, rel, voiceBars } from '../lib/format';
 import type { Message, ThreadKind } from '../types';
 
-const CHAT_BG = 'color-mix(in oklab, var(--bg) 93%, oklch(0.72 0.07 62))';
+const CHAT_BG = 'var(--chat-bg)';
 const QUICK_REACTIONS = ['\u{1F44D}', '❤️', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}'];
 const EMOJIS = [
   '\u{1F44D}', '❤️', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}', '\u{1F525}', '\u{1F389}',
@@ -158,6 +159,7 @@ function MessageBubble({
 
   return (
     <div
+      className="message-row"
       data-message-id={message.id}
       style={{
         display: 'flex',
@@ -167,7 +169,7 @@ function MessageBubble({
         minWidth: 0,
         justifyContent: mine ? 'flex-end' : 'flex-start',
         marginBottom: row.last ? 11 : 3,
-        animation: 'fmIn .2s ease both',
+        animation: 'fmIn .2s var(--ease-standard) both',
         transform: `translateX(${swipe}px)`,
       }}
     >
@@ -191,6 +193,7 @@ function MessageBubble({
         </span>
       )}
       <div
+        className="message-bubble"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -204,8 +207,8 @@ function MessageBubble({
           maxWidth: 'min(80%,520px)',
           padding: '8px 12px 6px',
           borderRadius: radius,
-          background: mine ? 'var(--accent)' : 'var(--surface)',
-          color: mine ? 'var(--accentInk)' : 'var(--ink)',
+          background: mine ? 'var(--chat-outgoing)' : 'var(--chat-incoming)',
+          color: 'var(--ink)',
           boxShadow: current
             ? '0 0 0 2px var(--accent)'
             : highlighted
@@ -277,7 +280,7 @@ function MessageBubble({
               margin: '1px 0 6px',
               padding: '16px 14px',
               borderRadius: 12,
-              background: `repeating-linear-gradient(135deg, oklch(0.45 0.02 ${author.hue} / .5) 0 9px, oklch(0.38 0.02 ${author.hue} / .5) 9px 18px)`,
+              background: mediaTone(author.hue),
               fontFamily: 'ui-monospace,monospace',
               fontSize: 10.5,
               letterSpacing: '0.05em',
@@ -647,7 +650,7 @@ function ForwardPicker({
           style={{
             margin: '0 0 10px',
             padding: '0 20px',
-            fontFamily: "'Bricolage Grotesque',sans-serif",
+            fontFamily: 'var(--font-display)',
             fontSize: 17,
             fontWeight: 700,
             letterSpacing: '-0.02em',
@@ -749,7 +752,7 @@ function EphemeralSheet({
           style={{
             margin: '0 0 4px',
             padding: '0 20px',
-            fontFamily: "'Bricolage Grotesque',sans-serif",
+            fontFamily: 'var(--font-display)',
             fontSize: 17,
             fontWeight: 700,
             letterSpacing: '-0.02em',
@@ -855,7 +858,7 @@ function AttachSheet({ onClose, onPick }: { onClose: () => void; onPick: (item: 
         <h2
           style={{
             margin: '0 0 14px',
-            fontFamily: "'Bricolage Grotesque',sans-serif",
+            fontFamily: 'var(--font-display)',
             fontSize: 16,
             fontWeight: 700,
             letterSpacing: '-0.02em',
@@ -949,7 +952,7 @@ function CallOverlay({
             style={{
               position: 'absolute',
               inset: 0,
-              background: `repeating-linear-gradient(135deg, oklch(0.27 0.03 ${other.hue}) 0 16px, oklch(0.21 0.02 ${other.hue}) 16px 32px)`,
+              background: mediaTone(other.hue),
               display: 'grid',
               placeItems: 'center',
               fontFamily: 'ui-monospace,monospace',
@@ -971,7 +974,7 @@ function CallOverlay({
               borderRadius: 14,
               border: '1px solid oklch(0.99 0 0 / 0.25)',
               background:
-                'repeating-linear-gradient(135deg, oklch(0.30 0.02 265) 0 10px, oklch(0.24 0.02 265) 10px 20px)',
+                'var(--surface2)',
               display: 'grid',
               placeItems: 'center',
               padding: 8,
@@ -1005,7 +1008,7 @@ function CallOverlay({
               borderRadius: '50%',
               display: 'grid',
               placeItems: 'center',
-              fontFamily: "'Bricolage Grotesque',sans-serif",
+              fontFamily: 'var(--font-display)',
               fontWeight: 700,
               fontSize: 36,
               color: `oklch(0.16 0.03 ${other.hue})`,
@@ -1018,7 +1021,7 @@ function CallOverlay({
         <div style={{ textAlign: 'center' }}>
           <div
             style={{
-              fontFamily: "'Bricolage Grotesque',sans-serif",
+              fontFamily: 'var(--font-display)',
               fontSize: 23,
               fontWeight: 700,
               letterSpacing: '-0.02em',
@@ -1131,7 +1134,7 @@ function ChannelView({ channelId }: { channelId: string }) {
                 borderRadius: 14,
                 overflow: 'hidden',
                 aspectRatio: post.media[0].ratio,
-                background: `repeating-linear-gradient(135deg, oklch(0.32 0.03 ${channel.hue}) 0 11px, oklch(0.26 0.02 ${channel.hue}) 11px 22px)`,
+                background: mediaTone(channel.hue),
                 display: 'grid',
                 placeItems: 'center',
               }}
@@ -1423,6 +1426,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
   return (
     <>
       <header
+        className="thread-header"
         style={{
           flex: '0 0 auto',
           display: 'flex',
@@ -1731,20 +1735,24 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
                 <span style={{ fontSize: 11, color: 'var(--ink3)' }}>{t[member.role]}</span>
                 {canManage && member.userId !== meId && member.role !== 'owner' && (
                   <>
-                    <button
-                      className="hov-accent-shield"
-                      onClick={() => setMemberRole(group.id, member.userId, 'admin')}
-                      style={{ color: 'var(--ink3)' }}
-                    >
-                      <Icon name="shield_person" size={16} />
-                    </button>
-                    <button
-                      className="hov-like"
-                      onClick={() => removeMember(group.id, member.userId)}
-                      style={{ color: 'var(--ink3)' }}
-                    >
-                      <Icon name="person_remove" size={16} />
-                    </button>
+                    {myRole === 'owner' && member.role === 'member' && (
+                      <button
+                        className="hov-accent-shield"
+                        onClick={() => setMemberRole(group.id, member.userId, 'admin')}
+                        style={{ color: 'var(--ink3)' }}
+                      >
+                        <Icon name="shield_person" size={16} />
+                      </button>
+                    )}
+                    {(myRole === 'owner' || (myRole === 'admin' && member.role === 'member')) && (
+                      <button
+                        className="hov-like"
+                        onClick={() => removeMember(group.id, member.userId)}
+                        style={{ color: 'var(--ink3)' }}
+                      >
+                        <Icon name="person_remove" size={16} />
+                      </button>
+                    )}
                   </>
                 )}
               </div>
@@ -1775,6 +1783,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
       {isChat && (
         <>
           <div
+            className="thread-body"
             ref={scroller}
             style={{
               flex: 1,
@@ -1875,6 +1884,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
           </div>
 
           <div
+            className="thread-composer"
             style={{
               flex: '0 0 auto',
               padding: '9px 10px calc(9px + env(safe-area-inset-bottom))',
@@ -2002,7 +2012,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
                             height: emojiTab === 'stickers' ? 92 : 86,
                             borderRadius: 13,
                             background:
-                              'repeating-linear-gradient(135deg, var(--surface2) 0 9px, var(--surface) 9px 18px)',
+                              'var(--surface2)',
                             border: '1px solid var(--line)',
                             padding: 9,
                             fontFamily: 'ui-monospace,monospace',

@@ -15,20 +15,20 @@ export default defineConfig({
       : [
           VitePWA({
             registerType: 'autoUpdate',
-            includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+            includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'robots.txt', 'sitemap.xml'],
             manifest: {
               name: 'Facemash',
               short_name: 'Facemash',
               description:
-                'Flux vertical, abonnements et messagerie plein écran — la version installable de Facemash.',
+                'Facemash, le réseau social pour découvrir des créateurs, partager des publications et échanger.',
               lang: 'fr',
               dir: 'ltr',
               start_url: '/',
               scope: '/',
               display: 'standalone',
               orientation: 'portrait',
-              background_color: '#14161c',
-              theme_color: '#14161c',
+              background_color: '#000000',
+              theme_color: '#000000',
               categories: ['social', 'entertainment'],
               icons: [
                 { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },

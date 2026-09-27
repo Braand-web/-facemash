@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Avatar, Icon } from './Icon';
+import { mediaTone } from '../lib/mediaTone';
 import { useApp } from '../store';
 import { useOverlays } from '../overlays';
 import { useDialog } from '../lib/dialog';
@@ -125,7 +126,7 @@ function Composer() {
             style={{
               margin: 0,
               flex: 1,
-              fontFamily: "'Bricolage Grotesque',sans-serif",
+              fontFamily: 'var(--font-display)',
               fontSize: 17,
               fontWeight: 700,
               letterSpacing: '-0.02em',
@@ -224,7 +225,7 @@ function Composer() {
                     aspectRatio: item.ratio,
                     borderRadius: 13,
                     overflow: 'hidden',
-                    background: 'repeating-linear-gradient(135deg, var(--surface2) 0 9px, var(--surface) 9px 18px)',
+                    background: 'var(--surface2)',
                     border: '1px solid var(--line)',
                   }}
                 >
@@ -458,7 +459,7 @@ function StoryViewer() {
           width: '100%',
           height: '100%',
           maxWidth: 480,
-          background: `repeating-linear-gradient(135deg, oklch(0.30 0.035 ${author.hue}) 0 14px, oklch(0.23 0.025 ${author.hue}) 14px 28px)`,
+          background: mediaTone(author.hue),
           overflow: 'hidden',
         }}
       >
@@ -599,7 +600,7 @@ function ShareSheet() {
           style={{
             margin: '0 0 6px',
             padding: '0 18px',
-            fontFamily: "'Bricolage Grotesque',sans-serif",
+            fontFamily: 'var(--font-display)',
             fontSize: 17,
             fontWeight: 700,
             letterSpacing: '-0.02em',

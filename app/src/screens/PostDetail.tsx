@@ -47,7 +47,7 @@ export function PostDetail() {
             letterSpacing: '0.02em',
             textTransform: 'uppercase',
             color: 'var(--ink3)',
-            fontFamily: "'Bricolage Grotesque',sans-serif",
+            fontFamily: 'var(--font-display)',
           }}
         >
           {t.comments}

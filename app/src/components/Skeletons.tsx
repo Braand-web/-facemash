@@ -1,7 +1,6 @@
 const shimmer = {
-  background: 'linear-gradient(90deg,var(--surface) 25%,var(--surface2) 37%,var(--surface) 63%)',
-  backgroundSize: '200% 100%',
-  animation: 'fmShim 1.3s linear infinite',
+  background: 'var(--surface2)',
+  animation: 'fmPulse 1.3s var(--ease-standard) infinite',
   display: 'block',
 } as const;
 

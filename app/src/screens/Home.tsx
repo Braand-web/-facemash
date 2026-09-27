@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Icon } from '../components/Icon';
+import { mediaTone } from '../lib/mediaTone';
 import { PostCard, usePostMeta } from '../components/PostCard';
 import { PullToRefresh } from '../components/PullToRefresh';
 import { FeedSkeleton } from '../components/Skeletons';
@@ -56,7 +57,7 @@ function ReelItem({
           position: 'absolute',
           inset: 0,
           display: 'block',
-          background: `repeating-linear-gradient(135deg, oklch(0.28 0.035 ${hue}) 0 14px, oklch(0.21 0.025 ${hue}) 14px 28px)`,
+          background: mediaTone(hue),
         }}
       />
       {textOnly ? (
@@ -73,7 +74,7 @@ function ReelItem({
           <p
             style={{
               margin: 0,
-              fontFamily: "'Bricolage Grotesque',sans-serif",
+              fontFamily: 'var(--font-display)',
               fontSize: 'clamp(24px,5.2vw,38px)',
               lineHeight: 1.2,
               fontWeight: 700,
@@ -208,8 +209,8 @@ function ReelItem({
           alignItems: 'flex-end',
           gap: 12,
           padding: '18px 14px 22px',
-          background:
-            'linear-gradient(to top, oklch(0.1 0 0 / 0.78), oklch(0.1 0 0 / 0.35) 55%, transparent)',
+          background: 'oklch(0.08 0 0 / 0.74)',
+          backdropFilter: 'blur(14px)',
         }}
       >
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 9 }}>
@@ -536,7 +537,7 @@ function Following() {
                   height: 60,
                   borderRadius: '50%',
                   padding: 2.5,
-                  background: `linear-gradient(140deg, var(--accent), oklch(0.72 0.14 ${author.hue}))`,
+                  background: 'var(--accent)',
                   display: 'grid',
                   placeItems: 'center',
                 }}
@@ -581,6 +582,7 @@ function Following() {
             {t.tapFollow}
           </p>
           <button
+            className="button-primary"
             onClick={() => navigate('/explore')}
             style={{
               padding: '12px 20px',
@@ -619,6 +621,7 @@ export function Home() {
   return (
     <>
       <header
+        className="screen-header"
         style={{
           position: 'sticky',
           top: 0,
@@ -637,8 +640,8 @@ export function Home() {
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, paddingRight: 6 }}>
             <span
               style={{
-                fontFamily: "'Bricolage Grotesque',sans-serif",
-                fontWeight: 800,
+                fontFamily: 'var(--font-display)',
+                fontWeight: 700,
                 fontSize: 19,
                 letterSpacing: '-0.03em',
               }}

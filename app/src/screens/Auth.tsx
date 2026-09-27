@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Icon } from '../components/Icon';
 import { useApp } from '../store';
-import { supabase } from '../lib/supabase';
+import { demoMode, supabase } from '../lib/supabase';
 import { useLayout } from '../viewport';
 
 type Mode = 'login' | 'signup' | 'forgot';
@@ -23,6 +23,22 @@ export function Auth() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+
+  const signInWithGoogle = async () => {
+    if (!supabase) return;
+    setBusy(true);
+    setError('');
+    try {
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: window.location.origin },
+      });
+      if (oauthError) throw oauthError;
+    } catch (oauthError) {
+      setError(oauthError instanceof Error ? oauthError.message : t.googleSignInError);
+      setBusy(false);
+    }
+  };
 
   const title = done ? t.linkSent : mode === 'signup' ? t.authS : mode === 'forgot' ? t.authF : t.authL;
   const subtitle = done ? '' : mode === 'signup' ? t.authSs : mode === 'forgot' ? t.authFs : t.authLs;
@@ -74,6 +90,11 @@ export function Auth() {
         setDone(true);
         return;
       }
+      if (!result.data.user?.id) {
+        setError(t.authUserMissing);
+        setBusy(false);
+        return;
+      }
       signIn({ onboarded: mode !== 'signup', authId: result.data.user?.id });
       return;
     }
@@ -84,13 +105,13 @@ export function Auth() {
   };
 
   return (
-    <div style={{ minHeight: shellHeight, display: 'grid', placeItems: 'center', padding: '28px 20px' }}>
-      <div style={{ width: '100%', maxWidth: 400, animation: 'fmIn .5s ease both' }}>
+    <div className="auth-screen" style={{ minHeight: shellHeight, display: 'grid', placeItems: 'center', padding: '28px 20px' }}>
+      <div className="auth-card" style={{ width: '100%', maxWidth: 400, animation: 'fmIn .5s var(--ease-standard) both' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 34 }}>
           <span
             style={{
-              fontFamily: "'Bricolage Grotesque',sans-serif",
-              fontWeight: 800,
+              fontFamily: 'var(--font-display)',
+              fontWeight: 700,
               fontSize: 34,
               letterSpacing: '-0.035em',
             }}
@@ -102,7 +123,7 @@ export function Auth() {
         <h1
           style={{
             margin: '0 0 8px',
-            fontFamily: "'Bricolage Grotesque',sans-serif",
+            fontFamily: 'var(--font-display)',
             fontSize: 28,
             fontWeight: 700,
             letterSpacing: '-0.025em',
@@ -136,6 +157,8 @@ export function Auth() {
           {!done && (
             <input
               className="field"
+              type="email"
+              autoComplete="email"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
               placeholder={t.email}
@@ -146,6 +169,7 @@ export function Auth() {
             <input
               className="field"
               type="password"
+              autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
               placeholder={t.password}
@@ -155,7 +179,9 @@ export function Auth() {
         </div>
         {!!error && <p style={{ margin: '12px 0 0', color: 'var(--like)', fontSize: 13.5 }}>{error}</p>}
         <button
-          onClick={submit}
+          className="button-primary"
+          onClick={() => void submit()}
+          disabled={busy}
           style={{
             marginTop: 20,
             width: '100%',
@@ -186,6 +212,46 @@ export function Auth() {
           )}
           {cta}
         </button>
+        {supabase && mode !== 'forgot' && !done && (
+          <>
+            <div
+              aria-hidden="true"
+              style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '18px 0', color: 'var(--ink3)', fontSize: 12 }}
+            >
+              <span style={{ height: 1, flex: 1, background: 'var(--line)' }} />
+              <span>{t.orContinueWith}</span>
+              <span style={{ height: 1, flex: 1, background: 'var(--line)' }} />
+            </div>
+            <button
+              type="button"
+              onClick={() => void signInWithGoogle()}
+              disabled={busy}
+              style={{
+                width: '100%',
+                minHeight: 48,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                border: '1px solid var(--line-strong)',
+                borderRadius: 14,
+                background: 'var(--surface)',
+                color: 'var(--ink)',
+                fontSize: 14,
+                fontWeight: 600,
+                opacity: busy ? 0.65 : 1,
+              }}
+            >
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48">
+                <path fill="#4285F4" d="M43.6 24.5c0-1.4-.1-2.8-.4-4.1H24v7.8h11a9.4 9.4 0 0 1-4.1 6.2v5h6.7c3.9-3.6 6-8.8 6-14.9Z" />
+                <path fill="#34A853" d="M24 44c5.5 0 10.1-1.8 13.5-4.7l-6.7-5c-1.9 1.3-4.1 2-6.8 2-5.2 0-9.6-3.5-11.2-8.2H5.9v5.2A20 20 0 0 0 24 44Z" />
+                <path fill="#FBBC05" d="M12.8 28.1a12 12 0 0 1 0-8.2v-5.2H5.9a20 20 0 0 0 0 18.6l6.9-5.2Z" />
+                <path fill="#EA4335" d="M24 11.7c3 0 5.7 1 7.8 3.1l5.9-5.9C34.1 5.7 29.5 4 24 4A20 20 0 0 0 5.9 14.7l6.9 5.2c1.6-4.7 6-8.2 11.2-8.2Z" />
+              </svg>
+              {t.googleContinue}
+            </button>
+          </>
+        )}
         <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
           <button
             className="hov-ink"
@@ -211,13 +277,15 @@ export function Auth() {
               {t.forgot}
             </button>
           )}
-          <button
-            onClick={() => signIn({ onboarded: true, demo: true })}
-            style={{ fontSize: 13.5, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            <Icon name="bolt" size={17} />
-            {t.demoEnter}
-          </button>
+          {demoMode && (
+            <button
+              onClick={() => signIn({ onboarded: true, demo: true })}
+              style={{ fontSize: 13.5, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <Icon name="bolt" size={17} />
+              {t.demoEnter}
+            </button>
+          )}
         </div>
       </div>
     </div>

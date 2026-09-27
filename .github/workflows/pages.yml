@@ -1,7 +1,6 @@
-name: Publish demo to GitHub Pages
+name: Publish compatibility build to GitHub Pages
 
-# Keeps the gh-pages branch in step with main. The demo runs on seeded data:
-# no Supabase credentials are built into this public bundle.
+# Legacy hash-router export. Demo fixtures are never enabled in this public build.
 on:
   push:
     branches: [main]
@@ -30,6 +29,8 @@ jobs:
         env:
           VITE_BASE: ./
           VITE_HASH_ROUTER: '1'
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Push the build to gh-pages
         working-directory: app/dist

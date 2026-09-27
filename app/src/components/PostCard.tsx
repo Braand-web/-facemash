@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import { Avatar, Icon, stripes } from './Icon';
+import { Avatar, Icon } from './Icon';
+import { mediaTone } from '../lib/mediaTone';
 import { useApp } from '../store';
 import { useOverlays } from '../overlays';
 import { fmt, initials as toInitials, rel } from '../lib/format';
@@ -45,9 +46,8 @@ export function PostCard({ post }: { post: Post }) {
 
   return (
     <article
+      className="post-card"
       style={{
-        padding: '17px 16px 8px',
-        borderBottom: '1px solid var(--line)',
         animation: 'fmIn .32s ease both',
       }}
     >
@@ -67,7 +67,7 @@ export function PostCard({ post }: { post: Post }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           {meta.showFollow && (
             <button
-              className="hov-accent-fill"
+              className="button-follow hov-accent-fill"
               onClick={() => toggleFollow(post.authorId)}
               style={{
                 padding: '7px 14px',
@@ -124,6 +124,7 @@ export function PostCard({ post }: { post: Post }) {
 
       {single && (
         <button
+          className="media-frame"
           onClick={openPost}
           style={{
             display: 'block',
@@ -133,7 +134,7 @@ export function PostCard({ post }: { post: Post }) {
             overflow: 'hidden',
             aspectRatio: post.media[0].ratio,
             maxHeight: 520,
-            background: stripes(author.hue),
+            background: mediaTone(author.hue),
             border: '1px solid var(--line)',
           }}
         >
@@ -156,15 +157,16 @@ export function PostCard({ post }: { post: Post }) {
           ) : (
             <span
               style={{
-                position: 'absolute',
+              position: 'absolute',
                 inset: 0,
                 display: 'grid',
                 placeItems: 'center',
                 padding: 20,
                 textAlign: 'center',
-                fontFamily: 'ui-monospace,monospace',
-                fontSize: 11.5,
-                letterSpacing: '0.07em',
+                fontFamily: 'var(--font-sans)',
+                fontSize: 12,
+                fontWeight: 600,
+                letterSpacing: '0.035em',
                 textTransform: 'uppercase',
                 color: `oklch(0.92 0.02 ${author.hue})`,
               }}
@@ -210,6 +212,7 @@ export function PostCard({ post }: { post: Post }) {
           {post.media.map((m, i) => (
             <div
               key={i}
+              className="media-frame"
               style={{
                 position: 'relative',
                 flex: '0 0 76%',
@@ -218,7 +221,7 @@ export function PostCard({ post }: { post: Post }) {
                 overflow: 'hidden',
                 aspectRatio: '4/5',
                 maxHeight: 460,
-                background: stripes(author.hue),
+                background: mediaTone(author.hue),
                 border: '1px solid var(--line)',
               }}
             >
@@ -238,9 +241,10 @@ export function PostCard({ post }: { post: Post }) {
                     placeItems: 'center',
                     padding: 18,
                     textAlign: 'center',
-                    fontFamily: 'ui-monospace,monospace',
-                    fontSize: 11.5,
-                    letterSpacing: '0.07em',
+                    fontFamily: 'var(--font-sans)',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    letterSpacing: '0.035em',
                     textTransform: 'uppercase',
                     color: `oklch(0.92 0.02 ${author.hue})`,
                   }}

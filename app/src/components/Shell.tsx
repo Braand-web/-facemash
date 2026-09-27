@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Avatar, Icon } from './Icon';
 import { useApp } from '../store';
+import { demoMode } from '../lib/supabase';
 import { useLayout } from '../viewport';
 import { initials as toInitials } from '../lib/format';
 import type { User } from '../types';
@@ -55,29 +56,19 @@ function useNavItems() {
 function Sidebar() {
   const navigate = useNavigate();
   const { t, theme, toggleTheme, toggleLang, lang, signOut, openComposer } = useApp();
-  const { shellHeight } = useLayout();
   const items = useNavItems();
 
   return (
     <aside
-      style={{
-        position: 'sticky',
-        top: 0,
-        height: shellHeight,
-        width: 260,
-        flex: '0 0 260px',
-        padding: '26px 18px',
-        borderRight: '1px solid var(--line)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-      }}
+      className="app-sidebar"
+      aria-label="Navigation principale"
+      style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
     >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, padding: '0 10px 26px' }}>
         <span
           style={{
-            fontFamily: "'Bricolage Grotesque',sans-serif",
-            fontWeight: 800,
+            fontFamily: 'var(--font-display)',
+            fontWeight: 700,
             fontSize: 25,
             letterSpacing: '-0.03em',
           }}
@@ -89,7 +80,7 @@ function Sidebar() {
       {items.map((item) => (
         <button
           key={item.key}
-          className="hov-surface"
+          className="nav-item hov-surface"
           onClick={() => (item.to ? navigate(item.to) : openComposer())}
           aria-current={item.active ? 'page' : undefined}
           style={{
@@ -106,13 +97,13 @@ function Sidebar() {
             name={item.icon}
             size={24}
             fill={item.active ? 1 : 0}
-            color={item.active ? 'var(--ink)' : 'var(--ink3)'}
+            color={item.active ? 'var(--accent)' : 'var(--ink3)'}
           />
           <span
             style={{
               fontSize: 15.5,
               fontWeight: item.active ? 600 : 450,
-              color: item.active ? 'var(--ink)' : 'var(--ink3)',
+              color: item.active ? 'var(--accent)' : 'var(--ink3)',
             }}
           >
             {item.label}
@@ -139,7 +130,7 @@ function Sidebar() {
         </button>
       ))}
       <button
-        className="hov-lift"
+        className="button-primary hov-lift"
         onClick={openComposer}
         style={{
           marginTop: 14,
@@ -223,25 +214,18 @@ function TabBar() {
 
   return (
     <nav
+      className="tab-bar"
       aria-label="Navigation principale"
       style={{
-        position: 'fixed',
-        left: 0,
-        right: 0,
-        bottom: 0,
-        zIndex: 40,
         display: 'grid',
         gridTemplateColumns: 'repeat(5,1fr)',
         alignItems: 'center',
-        padding: '8px 6px calc(8px + env(safe-area-inset-bottom))',
-        background: 'color-mix(in oklab, var(--bg) 86%, transparent)',
-        backdropFilter: 'blur(18px)',
-        borderTop: '1px solid var(--line)',
       }}
     >
       {items.map((item) => (
         <button
           key={item.key}
+          className="mobile-nav-item"
           onClick={() => (item.to ? navigate(item.to) : openComposer())}
           aria-current={item.active ? 'page' : undefined}
           aria-label={item.label}
@@ -274,13 +258,13 @@ function TabBar() {
                 name={item.icon}
                 size={25}
                 fill={item.active ? 1 : 0}
-                color={item.active ? 'var(--ink)' : 'var(--ink3)'}
+                color={item.active ? 'var(--accent)' : 'var(--ink3)'}
               />
               <span
                 style={{
                   fontSize: 10,
                   letterSpacing: '0.01em',
-                  color: item.active ? 'var(--ink)' : 'var(--ink3)',
+                  color: item.active ? 'var(--accent)' : 'var(--ink3)',
                 }}
               >
                 {item.label}
@@ -317,27 +301,16 @@ function TabBar() {
 function RightRail() {
   const navigate = useNavigate();
   const { t, user, toggleFollow } = useApp();
-  const { shellHeight } = useLayout();
   const trends = useTrends();
   const suggested = useSuggested(3);
 
   return (
     <aside
-      style={{
-        position: 'sticky',
-        top: 0,
-        height: shellHeight,
-        width: 320,
-        flex: '0 0 320px',
-        padding: '26px 20px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 20,
-        overflowY: 'auto',
-      }}
+      className="app-rail"
+      style={{ display: 'flex', flexDirection: 'column', gap: 18, overflowY: 'auto' }}
     >
       <button
-        className="hov-ink"
+        className="search-trigger hov-ink"
         onClick={() => navigate('/explore')}
         style={{
           display: 'flex',
@@ -354,11 +327,11 @@ function RightRail() {
         <Icon name="search" size={20} />
         {t.searchPh}
       </button>
-      <section style={{ background: 'var(--surface)', borderRadius: 18, padding: 18 }}>
+      <section className="side-panel" style={{ padding: 18 }}>
         <h3
           style={{
             margin: '0 0 14px',
-            fontFamily: "'Bricolage Grotesque',sans-serif",
+            fontFamily: 'var(--font-display)',
             fontSize: 16,
             fontWeight: 700,
             letterSpacing: '-0.01em',
@@ -379,11 +352,11 @@ function RightRail() {
           ))}
         </div>
       </section>
-      <section style={{ background: 'var(--surface)', borderRadius: 18, padding: 18 }}>
+      <section className="side-panel" style={{ padding: 18 }}>
         <h3
           style={{
             margin: '0 0 14px',
-            fontFamily: "'Bricolage Grotesque',sans-serif",
+            fontFamily: 'var(--font-display)',
             fontSize: 16,
             fontWeight: 700,
             letterSpacing: '-0.01em',
@@ -435,9 +408,11 @@ function RightRail() {
           })}
         </div>
       </section>
-      <p style={{ margin: 0, color: 'var(--ink3)', fontSize: 12, lineHeight: 1.6 }}>
-        Facemash V1 · {t.demoNote}
-      </p>
+      {demoMode && (
+        <p style={{ margin: 0, color: 'var(--ink3)', fontSize: 12, lineHeight: 1.6 }}>
+          Facemash · {t.demoNote}
+        </p>
+      )}
     </aside>
   );
 }
@@ -450,21 +425,17 @@ export function Shell() {
 
   return (
     <div
+      className="app-shell"
       style={{
         minHeight: shellHeight,
-        background: 'var(--bg)',
-        color: 'var(--ink)',
-        fontFamily: "'Geist',system-ui,sans-serif",
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', minHeight: shellHeight }}>
+      <div className="shell-layout" style={{ minHeight: shellHeight }}>
         {wide && !messengerMode && <Sidebar />}
         <main
+          className="app-main"
           style={{
-            flex: '1 1 auto',
-            maxWidth: messengerMode ? 'none' : 640,
-            minWidth: 0,
-            borderRight: `1px solid ${messengerMode ? 'transparent' : 'var(--line)'}`,
+            maxWidth: messengerMode ? 'none' : 680,
             paddingBottom: messengerMode ? 0 : wide ? 40 : 96,
           }}
         >

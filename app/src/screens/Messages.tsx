@@ -59,7 +59,7 @@ function ContactPicker({ onClose }: { onClose: () => void }) {
               style={{
                 margin: 0,
                 flex: 1,
-                fontFamily: "'Bricolage Grotesque',sans-serif",
+                fontFamily: 'var(--font-display)',
                 fontSize: 17,
                 fontWeight: 700,
                 letterSpacing: '-0.02em',
@@ -193,7 +193,7 @@ function NewGroupSheet({ onClose }: { onClose: () => void }) {
             style={{
               margin: 0,
               flex: 1,
-              fontFamily: "'Bricolage Grotesque',sans-serif",
+              fontFamily: 'var(--font-display)',
               fontSize: 17,
               fontWeight: 700,
               letterSpacing: '-0.02em',
@@ -319,8 +319,9 @@ export function Messages() {
     openSheet({ kind: 'convo', id, pinned: !!user.pins[id], archived: !!user.archived[id] });
 
   return (
-    <div style={{ display: 'flex', alignItems: 'stretch', minWidth: 0, height: shellHeight, overflow: 'hidden' }}>
+    <div className="message-mode" style={{ display: 'flex', alignItems: 'stretch', minWidth: 0, height: shellHeight, overflow: 'hidden' }}>
       <section
+        className="chat-list"
         style={{
           position: 'relative',
           flex: wide ? '0 0 372px' : '1 1 auto',
@@ -332,7 +333,7 @@ export function Messages() {
         }}
       >
         <button
-          className="hov-lift2"
+          className="chat-fab hov-lift2"
           onClick={() => {
             if (tab === 'groups') setNewGroup(true);
             else if (tab === 'channels') navigate('/explore');
@@ -358,6 +359,7 @@ export function Messages() {
         </button>
 
         <header
+          className="chat-header"
           style={{
             flex: '0 0 auto',
             padding: '10px 10px 0',
@@ -386,7 +388,7 @@ export function Messages() {
                 margin: 0,
                 flex: 1,
                 minWidth: 0,
-                fontFamily: "'Bricolage Grotesque',sans-serif",
+                fontFamily: 'var(--font-display)',
                 fontSize: 21,
                 fontWeight: 700,
                 letterSpacing: '-0.025em',
@@ -478,6 +480,7 @@ export function Messages() {
           {tab === 'chats' && (
             <>
               <div
+                className="chat-statuses"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -513,7 +516,7 @@ export function Messages() {
                           height: 46,
                           borderRadius: '50%',
                           padding: 2,
-                          background: `linear-gradient(140deg, var(--accent), oklch(0.72 0.14 ${author.hue}))`,
+                          background: 'var(--accent)',
                           display: 'grid',
                           placeItems: 'center',
                         }}
@@ -547,7 +550,7 @@ export function Messages() {
                 return (
                   <div
                     key={convo.id}
-                    className="hov-surface"
+                    className="chat-row hov-surface"
                     onContextMenu={(e) => {
                       e.preventDefault();
                       rowMenu(convo.id);
@@ -653,7 +656,7 @@ export function Messages() {
               return (
                 <div
                   key={group.id}
-                  className="hov-surface"
+                  className="chat-row hov-surface"
                   onContextMenu={(e) => {
                     e.preventDefault();
                     rowMenu(group.id);
@@ -756,7 +759,7 @@ export function Messages() {
               return (
                 <button
                   key={channel.id}
-                  className="hov-surface"
+                  className="chat-row hov-surface"
                   onClick={() => navigate(`/messages/channel/${channel.id}`)}
                   style={{
                     display: 'flex',
@@ -809,6 +812,7 @@ export function Messages() {
       </section>
 
       <section
+        className="thread-pane"
         style={{
           flex: '1 1 auto',
           display: threadVisible ? 'flex' : 'none',
@@ -821,6 +825,7 @@ export function Messages() {
           <Thread kind={threadKind} id={threadId} />
         ) : (
           <div
+            className="thread-empty"
             style={{
               flex: 1,
               display: 'flex',

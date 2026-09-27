@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Avatar, Icon } from '../components/Icon';
+import { mediaTone } from '../lib/mediaTone';
 import { PostCard } from '../components/PostCard';
 import { useApp } from '../store';
 import { useTrends } from '../components/Shell';
@@ -9,7 +10,7 @@ import { fmt, initials as toInitials } from '../lib/format';
 
 const sectionTitle = {
   margin: '22px 16px 10px',
-  fontFamily: "'Bricolage Grotesque',sans-serif",
+  fontFamily: 'var(--font-display)',
   fontSize: 14,
   fontWeight: 700,
   letterSpacing: '0.02em',
@@ -19,7 +20,7 @@ const sectionTitle = {
 
 const browseTitle = {
   margin: '26px 16px 10px',
-  fontFamily: "'Bricolage Grotesque',sans-serif",
+  fontFamily: 'var(--font-display)',
   fontSize: 17,
   fontWeight: 700,
   letterSpacing: '-0.015em',
@@ -134,9 +135,8 @@ export function Explore() {
                   height: 44,
                   borderRadius: '50%',
                   background:
-                    'linear-gradient(90deg,var(--surface) 25%,var(--surface2) 37%,var(--surface) 63%)',
-                  backgroundSize: '200% 100%',
-                  animation: 'fmShim 1.3s linear infinite',
+                    'var(--surface2)',
+                  animation: 'fmPulse 1.3s var(--ease-standard) infinite',
                   display: 'block',
                 }}
               />
@@ -146,9 +146,8 @@ export function Explore() {
                   height: 13,
                   borderRadius: 7,
                   background:
-                    'linear-gradient(90deg,var(--surface) 25%,var(--surface2) 37%,var(--surface) 63%)',
-                  backgroundSize: '200% 100%',
-                  animation: 'fmShim 1.3s linear infinite',
+                    'var(--surface2)',
+                  animation: 'fmPulse 1.3s var(--ease-standard) infinite',
                   display: 'block',
                 }}
               />
@@ -309,7 +308,7 @@ export function Explore() {
                     position: 'relative',
                     aspectRatio: '9/14',
                     overflow: 'hidden',
-                    background: `repeating-linear-gradient(135deg, oklch(0.30 0.035 ${hue}) 0 9px, oklch(0.23 0.025 ${hue}) 9px 18px)`,
+                    background: mediaTone(hue),
                   }}
                 >
                   <span

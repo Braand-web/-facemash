@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '../components/Icon';
+import { mediaTone } from '../lib/mediaTone';
 import { PostCard } from '../components/PostCard';
 import { useApp } from '../store';
 import { useOverlays } from '../overlays';
@@ -49,7 +50,7 @@ function EditProfileSheet({ onClose }: { onClose: () => void }) {
             style={{
               margin: 0,
               flex: 1,
-              fontFamily: "'Bricolage Grotesque',sans-serif",
+              fontFamily: 'var(--font-display)',
               fontSize: 17,
               fontWeight: 700,
               letterSpacing: '-0.02em',
@@ -85,6 +86,7 @@ function EditProfileSheet({ onClose }: { onClose: () => void }) {
           />
         </div>
         <button
+          className="button-primary"
           onClick={() => {
             saveProfile(form);
             onClose();
@@ -149,7 +151,7 @@ export function Profile() {
       <div
         style={{
           height: 132,
-          background: `repeating-linear-gradient(135deg, oklch(0.32 0.04 ${profile.hue}) 0 13px, oklch(0.25 0.03 ${profile.hue}) 13px 26px)`,
+          background: mediaTone(profile.hue),
         }}
       />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'absolute', top: 12, left: 12, right: 12 }}>
@@ -197,7 +199,7 @@ export function Profile() {
               border: '4px solid var(--bg)',
               display: 'grid',
               placeItems: 'center',
-              fontFamily: "'Bricolage Grotesque',sans-serif",
+              fontFamily: 'var(--font-display)',
               fontWeight: 700,
               fontSize: 30,
               color: `oklch(0.16 0.03 ${profile.hue})`,
@@ -298,7 +300,7 @@ export function Profile() {
         <h1
           style={{
             margin: '14px 0 2px',
-            fontFamily: "'Bricolage Grotesque',sans-serif",
+            fontFamily: 'var(--font-display)',
             fontSize: 23,
             fontWeight: 700,
             letterSpacing: '-0.025em',
@@ -387,7 +389,7 @@ export function Profile() {
           <p style={{ margin: 0, fontSize: 14 }}>{t.privateLockedHint}</p>
         </div>
       ) : tab === 'media' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 3, padding: 3 }}>
+        <div className="profile-media-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 6, padding: 8 }}>
           {mediaTiles.map((tile, i) => (
             <button
               key={i}
@@ -395,7 +397,7 @@ export function Profile() {
               style={{
                 aspectRatio: '1/1',
                 position: 'relative',
-                background: `repeating-linear-gradient(135deg, oklch(0.31 0.03 ${tile.hue}) 0 9px, oklch(0.24 0.02 ${tile.hue}) 9px 18px)`,
+                background: mediaTone(tile.hue),
               }}
             >
               <span

@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { ME, seedData, seedFollows } from './data/seed';
 import { loadProfileId, loadSnapshot, remote, remoteEnabled, subscribeRealtime } from './data/remote';
-import { supabase } from './lib/supabase';
+import { demoMode, supabase } from './lib/supabase';
 import { dict, type Dict } from './lib/i18n';
 import { mmss } from './lib/format';
 import type {
@@ -104,11 +104,22 @@ interface PersistedState {
   onboarding: { bio: string; location: string };
 }
 
+const emptyData = (): Data => ({
+  users: [],
+  posts: [],
+  comments: {},
+  conversations: [],
+  groups: [],
+  channels: [],
+  notifications: [],
+  stories: [],
+});
+
 const emptyUserState = (): UserState => ({
   likes: {},
   saves: {},
   reposts: {},
-  follows: seedFollows(),
+  follows: demoMode ? seedFollows() : {},
   blocked: {},
   pins: {},
   archived: {},
@@ -139,6 +150,9 @@ interface AppValue {
   me: User;
   userById: (id: string) => User;
   session: Session | null;
+  authReady: boolean;
+  accountError: 'profile' | 'snapshot' | null;
+  retryAccount: () => void;
   /* preferences */
   theme: Theme;
   lang: Lang;
@@ -213,7 +227,7 @@ const AppContext = createContext<AppValue | null>(null);
 
 const load = (): PersistedState => {
   const base: PersistedState = {
-    data: seedData(),
+    data: demoMode ? seedData() : emptyData(),
     user: emptyUserState(),
     theme: 'dark',
     lang: 'fr',
@@ -225,6 +239,13 @@ const load = (): PersistedState => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return base;
     const saved = JSON.parse(raw) as Partial<PersistedState>;
+    if (!demoMode) {
+      return {
+        ...base,
+        theme: saved.theme === 'light' ? 'light' : 'dark',
+        lang: saved.lang === 'en' ? 'en' : 'fr',
+      };
+    }
     return {
       ...base,
       ...saved,
@@ -251,6 +272,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [offline, setOffline] = useState(!navigator.onLine);
   const [remoteProfileId, setRemoteProfileId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [authReady, setAuthReady] = useState(!remoteEnabled);
+  const [accountError, setAccountError] = useState<'profile' | 'snapshot' | null>(null);
+  const [profileRetry, setProfileRetry] = useState(0);
   const toastTimer = useRef<number | undefined>(undefined);
   // Read in timers and callbacks that must not close over a stale render.
   const composerRef = useRef(composer);
@@ -280,41 +304,77 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const syncing = remoteProfileId !== null;
   const t = dict[lang];
 
+  const retryAccount = useCallback(() => {
+    setAccountError(null);
+    setLoading(true);
+    setProfileRetry((attempt) => attempt + 1);
+  }, []);
+
   // Pick up a Supabase session that already exists — a refresh, or the click on a
   // confirmation link that lands back on the app.
   useEffect(() => {
-    if (!remoteEnabled || !supabase) return;
+    if (!remoteEnabled || !supabase) {
+      setAuthReady(true);
+      return;
+    }
+    let active = true;
+    const { data: listener } = supabase.auth.onAuthStateChange((event, next) => {
+      if (!active) return;
+      if (next?.user) {
+        setLoading(true);
+        setAccountError(null);
+        setSession((prev) => (prev?.authId ? prev : { onboarded: true, authId: next.user.id }));
+      } else if (event === 'SIGNED_OUT') {
+        setRemoteProfileId(null);
+        setLoading(false);
+        setAccountError(null);
+        setSession(null);
+      }
+      setAuthReady(true);
+    });
     void supabase.auth
       .getSession()
       .then(({ data }) => {
+        if (!active) return;
         const authId = data.session?.user.id;
-        if (authId) setSession((prev) => (prev?.authId ? prev : { onboarded: true, authId }));
+        if (authId) {
+          setLoading(true);
+          setSession((prev) => (prev?.authId ? prev : { onboarded: true, authId }));
+        }
+        setAuthReady(true);
       })
       .catch(() => {
-        /* unreachable backend: the app stays on local state */
+        if (active) setAuthReady(true);
       });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => {
-      if (next?.user) setSession((prev) => (prev?.authId ? prev : { onboarded: true, authId: next.user.id }));
-    });
-    return () => listener.subscription.unsubscribe();
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
   // A signed-in account replaces the seeded demo state with its own rows.
   useEffect(() => {
     if (!remoteEnabled || !session?.authId) {
       setRemoteProfileId(null);
+      setLoading(false);
+      setAccountError(null);
       return;
     }
     let cancelled = false;
     setLoading(true);
+    setAccountError(null);
     void (async () => {
       const profileId = await loadProfileId().catch(() => null);
-      if (cancelled || !profileId) {
+      if (cancelled) return;
+      if (!profileId) {
+        setAccountError('profile');
         setLoading(false);
         return;
       }
       const snapshot = await loadSnapshot(profileId).catch(() => null);
-      if (cancelled || !snapshot) {
+      if (cancelled) return;
+      if (!snapshot) {
+        setAccountError('snapshot');
         setLoading(false);
         return;
       }
@@ -324,12 +384,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTheme(snapshot.settings.theme);
       setLang(snapshot.settings.lang);
       setSession((prev) => (prev ? { ...prev, onboarded: snapshot.settings.onboarded } : prev));
+      setAccountError(null);
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [session?.authId]);
+  }, [session?.authId, profileRetry]);
 
   // Live updates once the account is connected: new messages land without a refresh,
   // and an unmuted incoming message raises a browser notification when permitted.
@@ -411,11 +472,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // With a backend, the database is the source of truth; only preferences and the
-    // session are cached locally.
-    const payload: PersistedState = syncing
-      ? { data: seedData(), user: emptyUserState(), theme, lang, session, onboardingStep, onboarding }
-      : { data, user, theme, lang, session, onboardingStep, onboarding };
+    // Production keeps preferences only. Database content and auth sessions stay
+    // server sourced, and previously saved demo fixtures are ignored on load.
+    const payload = !demoMode
+      ? { theme, lang }
+      : syncing
+        ? { data: seedData(), user: emptyUserState(), theme, lang, session, onboardingStep, onboarding }
+        : { data, user, theme, lang, session, onboardingStep, onboarding };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch {
@@ -430,7 +493,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const userById = useCallback(
-    (id: string) => data.users.find((u) => u.id === id) ?? data.users[0],
+    (id: string) =>
+      data.users.find((u) => u.id === id) ??
+      data.users[0] ?? {
+        id,
+        name: '',
+        username: '',
+        hue: 265,
+        bio: '',
+        location: '',
+        followers: 0,
+        following: 0,
+      },
     [data.users],
   );
   const me = userById(meId);
@@ -1153,10 +1227,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [meId, showToast, t, syncing],
   );
 
-  const signIn = useCallback((next: Session) => setSession(next), []);
+  const signIn = useCallback((next: Session) => {
+    setAccountError(null);
+    setLoading(Boolean(next.authId));
+    setSession(next);
+  }, []);
   const signOut = useCallback(() => {
     if (remoteEnabled) void supabase?.auth.signOut();
     setRemoteProfileId(null);
+    setLoading(false);
+    setAccountError(null);
     setSession(null);
   }, []);
 
@@ -1221,6 +1301,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     me,
     userById,
     session,
+    authReady,
+    accountError,
+    retryAccount,
     theme,
     lang,
     t,
