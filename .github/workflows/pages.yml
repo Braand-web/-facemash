@@ -29,8 +29,6 @@ jobs:
         env:
           VITE_BASE: ./
           VITE_HASH_ROUTER: '1'
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Push the build to gh-pages
         working-directory: app/dist
