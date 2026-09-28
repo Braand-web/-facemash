@@ -1371,9 +1371,10 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
   };
   stopRecordingRef.current = stopRecording;
 
-  const send = () => {
+  const send = async () => {
     if (!draft.trim()) return;
-    sendMessage(kind, id, draft, replyTo ?? undefined);
+    const sent = await sendMessage(kind, id, draft, replyTo ?? undefined);
+    if (!sent) return;
     setDraft('');
     setReplyTo(null);
   };

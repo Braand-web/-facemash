@@ -183,7 +183,7 @@ interface AppValue {
   publish: (onDone: () => void) => void;
   deletePost: (postId: string) => void;
   /* messaging */
-  sendMessage: (kind: ThreadKind, threadId: string, text: string, replyTo?: Message['replyTo']) => void;
+  sendMessage: (kind: ThreadKind, threadId: string, text: string, replyTo?: Message['replyTo']) => Promise<boolean>;
   pushMessage: (kind: ThreadKind, threadId: string, extra: Partial<Message> & { kind: MessageKind }) => void;
   reactToMessage: (kind: ThreadKind, threadId: string, messageId: string, icon: string) => void;
   deleteMessage: (kind: ThreadKind, threadId: string, messageId: string) => void;
@@ -281,6 +281,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const dataRef = useRef(data);
   const userRef = useRef(user);
   const refreshRef = useRef<() => Promise<void>>(async () => {});
+  const receivedMessageIds = useRef(new Set<string>());
   composerRef.current = composer;
   dataRef.current = data;
   userRef.current = user;
@@ -398,6 +399,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!remoteProfileId) return;
     return subscribeRealtime(remoteProfileId, {
       onMessage: (threadId, message) => {
+        const threads = [...dataRef.current.conversations, ...dataRef.current.groups];
+        const knownThread = threads.find((thread) => thread.id === threadId);
+        if (!knownThread) {
+          // A new DM can become visible through Realtime before this client has
+          // loaded its membership row. Refresh so the incoming message is not lost.
+          void refreshRef.current();
+          notify(threadId, message);
+          return;
+        }
+        if (
+          knownThread.messages.some((existing) => existing.id === message.id) ||
+          receivedMessageIds.current.has(message.id)
+        ) {
+          return;
+        }
+        receivedMessageIds.current.add(message.id);
         setData((prev) => {
           const inConversation = prev.conversations.some((c) => c.id === threadId);
           const known = inConversation || prev.groups.some((g) => g.id === threadId);
@@ -784,6 +801,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const persistMessage = useCallback(
+    async (kind: ThreadKind, threadId: string, message: Message) => {
+      if (!syncing) return true;
+      const saved = await remote.addMessage(threadId, message);
+      if (saved) return true;
+      patchThread(kind, threadId, (messages) => messages.filter((item) => item.id !== message.id));
+      showToast(t.messageSendError);
+      return false;
+    },
+    [patchThread, showToast, syncing, t],
+  );
+
   const setMessageStatus = useCallback(
     (kind: ThreadKind, threadId: string, messageId: string, status: Message['status']) => {
       patchThread(kind, threadId, (messages) =>
@@ -821,8 +850,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const sendMessage = useCallback(
-    (kind: ThreadKind, threadId: string, text: string, replyTo?: Message['replyTo']) => {
-      if (!text.trim()) return;
+    async (kind: ThreadKind, threadId: string, text: string, replyTo?: Message['replyTo']) => {
+      if (!text.trim()) return false;
       const message: Message = {
         id: newId(),
         from: meId,
@@ -834,12 +863,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       patchThread(kind, threadId, (messages) => [...messages, message], { unread: 0 });
       if (syncing) {
-        void remote.addMessage(threadId, message);
-        return;
+        return persistMessage(kind, threadId, message);
       }
       window.setTimeout(() => setMessageStatus(kind, threadId, message.id, 'delivered'), 550);
       window.setTimeout(() => setMessageStatus(kind, threadId, message.id, 'read'), kind === 'dm' ? 1600 : 1800);
-      if (kind !== 'dm') return;
+      if (kind !== 'dm') return true;
       window.setTimeout(() => setTypingThreadId(threadId), 1900);
       window.setTimeout(() => {
         setTypingThreadId(null);
@@ -862,8 +890,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           };
         });
       }, 3700);
+      return true;
     },
-    [cannedReply, meId, patchThread, setMessageStatus, syncing],
+    [cannedReply, meId, patchThread, persistMessage, setMessageStatus, syncing],
   );
 
   const pushMessage = useCallback(
@@ -877,13 +906,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       patchThread(kind, threadId, (messages) => [...messages, message]);
       if (syncing) {
-        void remote.addMessage(threadId, message);
+        void persistMessage(kind, threadId, message);
         return;
       }
       window.setTimeout(() => setMessageStatus(kind, threadId, message.id, 'delivered'), 600);
       window.setTimeout(() => setMessageStatus(kind, threadId, message.id, 'read'), 1700);
     },
-    [meId, patchThread, setMessageStatus, syncing],
+    [meId, patchThread, persistMessage, setMessageStatus, syncing],
   );
 
   const reactToMessage = useCallback(
@@ -935,11 +964,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
             { profileId: meId, role: 'owner' },
             { profileId: userId, role: 'member' },
           ],
+        }).then((created) => {
+          if (created) return;
+          setData((prev) => ({
+            ...prev,
+            conversations: prev.conversations.filter((item) => item.id !== convo.id),
+          }));
+          showToast(t.messageSendError);
         });
       }
       return convo.id;
     },
-    [data.conversations, syncing, meId],
+    [data.conversations, showToast, syncing, meId, t],
   );
 
   const markThreadRead = useCallback(
@@ -1002,11 +1038,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           hue: group.hue,
           createdBy: meId,
           members: [{ profileId: meId, role: 'owner' }],
+        }).then((created) => {
+          if (created) return;
+          setData((prev) => ({ ...prev, groups: prev.groups.filter((item) => item.id !== group.id) }));
+          showToast(t.messageSendError);
         });
       }
       return group.id;
     },
-    [meId, syncing],
+    [meId, showToast, syncing, t],
   );
 
   const leaveGroup = useCallback(
@@ -1104,10 +1144,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...prev,
         posts: prev.posts.map((p) => (p.id === postId ? { ...p, shares: p.shares + 1 } : p)),
       }));
-      showToast(t.sentOk);
-      if (syncing) void remote.addMessage(target.id, message);
+      if (syncing) {
+        void persistMessage(target.kind, target.id, message).then((saved) => {
+          if (saved) showToast(t.sentOk);
+        });
+      } else {
+        showToast(t.sentOk);
+      }
     },
-    [data.posts, meId, patchThread, showToast, t, syncing],
+    [data.posts, meId, patchThread, persistMessage, showToast, t, syncing],
   );
 
   /** Disappearing messages, per conversation. 0 turns the timer off. */
@@ -1157,10 +1202,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         replyTo: undefined,
       };
       patchThread(target.kind, target.id, (messages) => [...messages, copy]);
-      showToast(t.forwarded);
-      if (syncing) void remote.addMessage(target.id, copy);
+      if (syncing) {
+        void persistMessage(target.kind, target.id, copy).then((saved) => {
+          if (saved) showToast(t.forwarded);
+        });
+      } else {
+        showToast(t.forwarded);
+      }
     },
-    [meId, patchThread, showToast, t, syncing],
+    [meId, patchThread, persistMessage, showToast, t, syncing],
   );
 
   const markAllNotificationsRead = useCallback(() => {

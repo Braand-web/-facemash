@@ -319,11 +319,22 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
 
 const table = (name: string) => supabase!.from(name);
 
-/** Writes mirror the optimistic local update; failures are logged, never thrown at the UI. */
+const pendingThreadCreations = new Map<string, Promise<boolean>>();
+
+/** Writes mirror optimistic UI updates; callers can roll back when persistence fails. */
 const run = async (label: string, work: () => PromiseLike<{ error: unknown }>) => {
-  if (!supabase) return;
-  const { error } = await work();
-  if (error) console.error(`facemash: ${label} failed`, error);
+  if (!supabase) return false;
+  try {
+    const { error } = await work();
+    if (error) {
+      console.error(`facemash: ${label} failed`, error);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error(`facemash: ${label} failed`, error);
+    return false;
+  }
 };
 
 export interface RealtimeHandlers {
@@ -374,7 +385,11 @@ export function subscribeRealtime(profileId: string, handlers: RealtimeHandlers)
     .on('postgres_changes', { event: 'INSERT', schema: 'facemash', table: 'posts' }, () =>
       handlers.onPost(),
     )
-    .subscribe();
+    .subscribe((status, error) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.error('facemash: realtime subscription failed', status, error);
+      }
+    });
 
   return () => {
     void client.removeChannel(channel);
@@ -495,7 +510,7 @@ export const remote = {
 
   deletePost: (postId: string) => run('deletePost', () => table('posts').delete().eq('id', postId)),
 
-  createThread: async (thread: {
+  createThread: (thread: {
     id: string;
     kind: 'dm' | 'group';
     name: string;
@@ -504,45 +519,44 @@ export const remote = {
     createdBy: string;
     members: { profileId: string; role: Role }[];
   }) => {
-    if (!supabase) return;
-    const { error } = await table('threads').insert({
-      id: thread.id,
-      kind: thread.kind,
-      name: thread.name,
-      description: thread.description,
-      hue: thread.hue,
-      created_by: thread.createdBy,
-    });
-    if (error) {
-      console.error('facemash: createThread failed', error);
-      return;
-    }
-    const { error: ownerError } = await table('thread_members').insert({
-      thread_id: thread.id,
-      profile_id: thread.createdBy,
-      role: 'owner',
-    });
-    if (ownerError) {
-      console.error('facemash: createThread owner failed', ownerError);
-      return;
-    }
-
-    const invitedMembers = thread.members.filter((member) => member.profileId !== thread.createdBy);
-    if (invitedMembers.length) {
-      await run('createThread members', () =>
-        table('thread_members').insert(
-          invitedMembers.map((member) => ({
-            thread_id: thread.id,
+    const client = supabase;
+    if (!client) return Promise.resolve(false);
+    const creation = (async () => {
+      try {
+        const { error } = await client.rpc('create_thread', {
+          target_thread: thread.id,
+          thread_kind: thread.kind,
+          thread_name: thread.name,
+          thread_description: thread.description,
+          thread_hue: thread.hue,
+          target_members: thread.members.map((member) => ({
             profile_id: member.profileId,
             role: member.role,
           })),
-        ),
-      );
-    }
+        });
+        if (error) {
+          console.error('facemash: createThread failed', error);
+          return false;
+        }
+        return true;
+      } catch (error) {
+        console.error('facemash: createThread failed', error);
+        return false;
+      }
+    })();
+    pendingThreadCreations.set(thread.id, creation);
+    void creation.then(() => {
+      if (pendingThreadCreations.get(thread.id) === creation) {
+        pendingThreadCreations.delete(thread.id);
+      }
+    });
+    return creation;
   },
 
-  addMessage: (threadId: string, message: Message) =>
-    run('addMessage', () =>
+  addMessage: async (threadId: string, message: Message) => {
+    const pendingCreation = pendingThreadCreations.get(threadId);
+    if (pendingCreation && !(await pendingCreation)) return false;
+    return run('addMessage', () =>
       table('messages').insert({
         id: message.id,
         thread_id: threadId,
@@ -559,7 +573,8 @@ export const remote = {
         shared_text: message.sharedText ?? null,
         media_url: message.mediaUrl ?? null,
       }),
-    ),
+    );
+  },
 
   setMessageStatus: (messageId: string, status: Message['status']) =>
     run('setMessageStatus', () => table('messages').update({ status }).eq('id', messageId)),
