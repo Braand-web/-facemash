@@ -159,8 +159,16 @@ export interface AppNotification {
 }
 
 export interface StoryItem {
+  /** Database id; absent on seeded demo stories. */
+  id?: string;
+  /** Raw stored label. Rich stories encode their payload in it (see lib/stories). */
   label: string;
   createdAt: number;
+  kind: 'text' | 'photo' | 'video';
+  text?: string;
+  url?: string;
+  /** Index into STORY_BGS. */
+  bg: number;
 }
 
 export interface StoryGroup {

@@ -1,4 +1,5 @@
 import { remote } from '../data/remote';
+import { compressImage } from './image';
 
 export interface UploadedFile {
   url: string;
@@ -16,12 +17,24 @@ const prettySize = (bytes: number) =>
  * Sends a picked file to Supabase Storage when the backend is configured. Without it,
  * the file is previewed from a blob URL that lasts as long as the page does.
  */
-export async function uploadFile(file: File, profileId: string, syncing: boolean): Promise<UploadedFile> {
-  const video = file.type.startsWith('video/');
+const ratioOf = async (file: File): Promise<string> => {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const ratio = `${bitmap.width}/${bitmap.height}`;
+    bitmap.close?.();
+    return ratio;
+  } catch {
+    return '4/5';
+  }
+};
+
+export async function uploadFile(source: File, profileId: string, syncing: boolean): Promise<UploadedFile> {
+  const video = source.type.startsWith('video/');
+  const file = video ? source : await compressImage(source);
   const base = {
     video,
     label: `${file.name} · ${prettySize(file.size)}`,
-    ratio: video ? '9/16' : '4/5',
+    ratio: video ? '9/16' : await ratioOf(file),
   };
   if (syncing) {
     const url = await remote.uploadMedia(profileId, file);

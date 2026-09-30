@@ -1,4 +1,5 @@
 import { minutesToTimestamp as ago } from '../lib/format';
+import { makeStory } from '../lib/stories';
 import type {
   AppNotification,
   Channel,
@@ -119,11 +120,11 @@ const notifications = (): AppNotification[] => [
 ];
 
 const stories = (): StoryGroup[] => [
-  { userId: 'u1', items: [{ label: 'photo · atelier 7h', createdAt: ago(180) }, { label: 'vidéo · sortie en cours', createdAt: ago(60) }] },
-  { userId: 'u3', items: [{ label: 'vidéo · maquette du soir', createdAt: ago(240) }] },
-  { userId: 'u5', items: [{ label: 'photo · écran de fin', createdAt: ago(420) }] },
-  { userId: 'u4', items: [{ label: 'photo · 32 km', createdAt: ago(600) }] },
-  { userId: 'u7', items: [{ label: 'vidéo · la même blague', createdAt: ago(720) }] },
+  { userId: 'u1', items: [makeStory('photo · atelier 7h', ago(180)), makeStory('vidéo · sortie en cours', ago(60))] },
+  { userId: 'u3', items: [makeStory('vidéo · maquette du soir', ago(240))] },
+  { userId: 'u5', items: [makeStory('photo · écran de fin', ago(420))] },
+  { userId: 'u4', items: [makeStory('photo · 32 km', ago(600))] },
+  { userId: 'u7', items: [makeStory('vidéo · la même blague', ago(720))] },
 ];
 
 export const seedData = (): Data => ({

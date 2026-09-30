@@ -1,606 +1,361 @@
 import { useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Icon } from '../components/Icon';
-import { mediaTone } from '../lib/mediaTone';
+import { FollowButton, MediaFill, RichText, Segmented, UserAvatar, EmptyState, Brand } from '../components/ui';
 import { PostCard, usePostMeta } from '../components/PostCard';
 import { PullToRefresh } from '../components/PullToRefresh';
 import { FeedSkeleton } from '../components/Skeletons';
+import { StoryRail } from '../components/Stories';
+import { SCROLL_TOP_EVENT, useSuggested } from '../components/Shell';
 import { useApp } from '../store';
 import { useOverlays } from '../overlays';
 import { useLayout } from '../viewport';
+import { useDoubleTap } from '../lib/gestures';
+import { haptic } from '../lib/haptics';
+import { usePrefs } from '../lib/prefs';
 import { rankedPosts } from '../lib/ranking';
-import { initials as toInitials } from '../lib/format';
+import { fmt } from '../lib/format';
 import type { Post } from '../types';
 
-function ReelItem({
-  post,
-  active,
-  progress,
-  paused,
-  burstKey,
-  muted,
-  onTap,
-  onToggleMute,
-}: {
-  post: Post;
-  active: boolean;
-  progress: number;
-  paused: boolean;
-  burstKey: number;
-  muted: boolean;
-  onTap: () => void;
-  onToggleMute: () => void;
-}) {
-  const navigate = useNavigate();
-  const { t, toggleLike, toggleSave, toggleFollow } = useApp();
-  const { openShare } = useOverlays();
-  const meta = usePostMeta(post);
-  const { author } = meta;
-  const hue = author.hue;
-  const textOnly = post.media.length === 0;
+/** Thin progress line: follows a real video's clock, or simulates one for still media. */
+function ReelProgress({ active, paused, video }: { active: boolean; paused: boolean; video: HTMLVideoElement | null }) {
+  const bar = useRef<HTMLElement | null>(null);
+  const clock = useRef(0);
+
+  useEffect(() => {
+    clock.current = 0;
+    if (bar.current) bar.current.style.transform = 'scaleX(0)';
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = now - last;
+      last = now;
+      let p: number;
+      if (video && video.duration) p = video.currentTime / video.duration;
+      else {
+        if (!paused) clock.current += dt / 12000;
+        if (clock.current > 1) clock.current = 0;
+        p = clock.current;
+      }
+      if (bar.current) bar.current.style.transform = `scaleX(${p})`;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [active, paused, video]);
 
   return (
-    <section
-      style={{
-        position: 'relative',
-        height: '100%',
-        scrollSnapAlign: 'start',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'flex-end',
-      }}
-    >
-      <button
-        onClick={onTap}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          display: 'block',
-          background: mediaTone(hue),
-        }}
-      />
-      {textOnly ? (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'grid',
-            placeItems: 'center',
-            padding: '12% 9%',
-            pointerEvents: 'none',
-          }}
-        >
-          <p
-            style={{
-              margin: 0,
-              fontFamily: 'var(--font-display)',
-              fontSize: 'clamp(24px,5.2vw,38px)',
-              lineHeight: 1.2,
-              fontWeight: 700,
-              letterSpacing: '-0.025em',
-              color: `oklch(0.98 0.01 ${hue})`,
-              textWrap: 'pretty',
-              textAlign: 'center',
-            }}
-          >
+    <div className="reel__progress" aria-hidden="true">
+      <i ref={(el) => { bar.current = el; }} style={{ transformOrigin: 'left', transform: 'scaleX(0)' }} />
+    </div>
+  );
+}
+
+function ReelItem({ post, active, muted }: { post: Post; active: boolean; muted: boolean }) {
+  const navigate = useNavigate();
+  const { t, toggleLike, toggleSave, toggleRepost, meId, user } = useApp();
+  const { openShare, openComments, openSheet } = useOverlays();
+  const { autoplay } = usePrefs();
+  const meta = usePostMeta(post);
+  const { author } = meta;
+  const [paused, setPaused] = useState(false);
+  const [flash, setFlash] = useState<number>(0);
+  const [burst, setBurst] = useState<{ key: number; x: number; y: number } | null>(null);
+  const [video, setVideo] = useState<HTMLVideoElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const textOnly = post.media.length === 0;
+  const media = post.media[0];
+
+  useEffect(() => {
+    if (!active) setPaused(false);
+  }, [active]);
+
+  useEffect(() => {
+    if (!video) return;
+    if (active && !paused && autoplay) void video.play().catch(() => {});
+    else video.pause();
+  }, [video, active, paused, autoplay]);
+
+  const onTap = useDoubleTap(
+    () => {
+      setPaused((p) => !p);
+      setFlash(Date.now());
+    },
+    (x, y) => {
+      if (!user.likes[post.id]) toggleLike(post.id);
+      haptic('success');
+      setBurst({ key: Date.now(), x, y });
+    },
+  );
+
+  const like = () => {
+    haptic(meta.liked ? 'tick' : 'light');
+    toggleLike(post.id);
+  };
+
+  return (
+    <section className="reel" aria-label={`${author.name} — ${post.text.slice(0, 60)}`}>
+      <div className="media-art" style={{ position: 'absolute', inset: 0, ['--h' as string]: author.hue }} />
+      {!textOnly && media?.url && !media.video && <img src={media.url} alt={media.label} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} draggable={false} />}
+      {!textOnly && media?.url && media.video && (
+        <video ref={setVideo} src={media.url} muted={muted} loop playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+      )}
+      {!textOnly && !media?.url && (
+        <div style={{ position: 'absolute', inset: 0 }}>
+          <MediaFill item={media} hue={author.hue} showLabel={false} />
+        </div>
+      )}
+      {textOnly && (
+        <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', padding: '14% 10%', pointerEvents: 'none' }}>
+          <p className="display" style={{ margin: 0, textAlign: 'center', fontSize: 'clamp(26px, 6vw, 40px)', fontWeight: 800, lineHeight: 1.12, textShadow: '0 2px 24px rgb(0 0 0 / 35%)' }}>
             {post.text}
           </p>
         </div>
-      ) : post.media[0].url ? (
-        post.media[0].video ? (
-          <video
-            src={post.media[0].url}
-            autoPlay={active && !paused}
-            muted={muted}
-            loop
-            playsInline
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-        ) : (
-          <img
-            src={post.media[0].url}
-            alt={post.media[0].label}
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-        )
-      ) : (
-        <span
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'grid',
-            placeItems: 'center',
-            pointerEvents: 'none',
-            fontFamily: 'ui-monospace,monospace',
-            fontSize: 11.5,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            color: `oklch(0.93 0.02 ${hue})`,
-            textAlign: 'center',
-            padding: '0 40px',
-          }}
-        >
-          {post.media[0].label}
-        </span>
       )}
+      <div className="reel__scrim" />
 
-      {active && paused && (
-        <span
-          style={{
-            position: 'absolute',
-            left: '50%',
-            top: '50%',
-            transform: 'translate(-50%,-50%)',
-            width: 74,
-            height: 74,
-            borderRadius: '50%',
-            background: 'oklch(0.15 0 0 / 0.4)',
-            backdropFilter: 'blur(6px)',
-            display: 'grid',
-            placeItems: 'center',
-            color: 'oklch(0.99 0 0)',
-            pointerEvents: 'none',
-          }}
-        >
+      <button aria-label={t.playPause} onClick={onTap} style={{ position: 'absolute', inset: 0, zIndex: 2, cursor: 'pointer' }} />
+      {active && paused && flash > 0 && (
+        <span key={flash} className="reel__flash">
           <Icon name="play_arrow" size={40} fill={1} />
         </span>
       )}
-
-      {active && burstKey > 0 && (
-        <span
-          key={burstKey}
-          style={{
-            position: 'absolute',
-            left: '50%',
-            top: '50%',
-            transform: 'translate(-50%,-50%)',
-            color: 'var(--like)',
-            animation: 'fmPop .8s ease-out both',
-            pointerEvents: 'none',
-          }}
-        >
-          <Icon name="favorite" size={96} fill={1} color="var(--like)" />
+      {burst && (
+        <span key={burst.key} className="burst" style={{ left: burst.x, top: burst.y }}>
+          <Icon name="favorite" size={110} fill={1} color="#fff" />
         </span>
       )}
 
-      <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          top: 0,
-          height: 2.5,
-          background: 'oklch(0.99 0 0 / 0.18)',
-        }}
-      >
-        <span
-          style={{
-            display: 'block',
-            height: '100%',
-            width: `${active ? Math.round(progress * 100) : 0}%`,
-            background: 'oklch(0.99 0 0 / 0.85)',
-          }}
-        />
-      </div>
-      <button
-        onClick={onToggleMute}
-        style={{
-          position: 'absolute',
-          right: 14,
-          top: 16,
-          width: 38,
-          height: 38,
-          borderRadius: '50%',
-          background: 'oklch(0.15 0 0 / 0.42)',
-          backdropFilter: 'blur(6px)',
-          color: 'oklch(0.99 0 0)',
-          display: 'grid',
-          placeItems: 'center',
-        }}
-      >
-        <Icon name={muted ? 'volume_off' : 'volume_up'} size={20} />
-      </button>
-
-      <div
-        style={{
-          position: 'relative',
-          display: 'flex',
-          alignItems: 'flex-end',
-          gap: 12,
-          padding: '18px 14px 22px',
-          background: 'oklch(0.08 0 0 / 0.74)',
-          backdropFilter: 'blur(14px)',
-        }}
-      >
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 9 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button
-              onClick={() => navigate(`/profile/${post.authorId}`)}
-              style={{
-                width: 38,
-                height: 38,
-                flex: '0 0 38px',
-                borderRadius: '50%',
-                display: 'grid',
-                placeItems: 'center',
-                fontWeight: 600,
-                fontSize: 13.5,
-                color: `oklch(0.16 0.03 ${hue})`,
-                background: `oklch(0.82 0.10 ${hue})`,
-                border: '1.5px solid oklch(0.99 0 0 / 0.7)',
-              }}
-            >
-              {meta.initials}
-            </button>
-            <button
-              onClick={() => navigate(`/profile/${post.authorId}`)}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                textAlign: 'left',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 2,
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 14.5,
-                  fontWeight: 600,
-                  color: 'oklch(0.99 0 0)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  maxWidth: '100%',
-                }}
-              >
-                {author.name}
-              </span>
-              <span
-                style={{
-                  fontSize: 12.5,
-                  color: 'oklch(0.99 0 0 / 0.66)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  maxWidth: '100%',
-                }}
-              >
-                @{author.username} · {meta.time}
-              </span>
-            </button>
-            {meta.showFollow && (
-              <button
-                onClick={() => toggleFollow(post.authorId)}
-                style={{
-                  flex: '0 0 auto',
-                  padding: '6px 13px',
-                  borderRadius: 999,
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  color: 'oklch(0.99 0 0)',
-                  border: '1px solid oklch(0.99 0 0 / 0.6)',
-                }}
-              >
-                {t.follow}
+      <div className="reel__caption">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={() => navigate(`/profile/${post.authorId}`)} style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.015em' }}>
+            @{author.username}
+          </button>
+          <span style={{ fontSize: 12.5, opacity: 0.75 }}>{meta.time}</span>
+        </div>
+        {!textOnly && !!post.text && (
+          <p onClick={() => setOpen((v) => !v)} style={{ margin: 0, fontSize: 14.5, lineHeight: 1.45, cursor: 'pointer', ...(open ? {} : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }) }}>
+            <RichText text={post.text} />
+          </p>
+        )}
+        {(post.tags.length > 0 || post.location) && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {post.tags.slice(0, 3).map((tag) => (
+              <button key={tag} className="tag-chip" onClick={() => navigate(`/tag/${encodeURIComponent(tag.replace('#', ''))}`)}>
+                {tag}
               </button>
+            ))}
+            {post.location && (
+              <span className="tag-chip" style={{ gap: 4 }}>
+                <Icon name="location_on" size={14} />
+                {post.location}
+              </span>
             )}
           </div>
-          <p
-            style={{
-              margin: 0,
-              fontSize: 14.5,
-              lineHeight: 1.5,
-              color: 'oklch(0.99 0 0 / 0.94)',
-              maxWidth: '44ch',
-              textWrap: 'pretty',
-            }}
-          >
-            {post.text}
-          </p>
-          {post.tags.length > 0 && (
-            <p style={{ margin: 0, fontSize: 13.5, fontWeight: 500, color: 'oklch(0.9 0.09 182)' }}>
-              {post.tags.join(' ')}
-            </p>
+        )}
+      </div>
+
+      <div className="reel__rail">
+        <div style={{ position: 'relative', marginBottom: 6 }}>
+          <span style={{ display: 'grid', padding: 2, borderRadius: '50%', background: '#fff' }}>
+            <UserAvatar userId={post.authorId} size={50} onClick={() => navigate(`/profile/${post.authorId}`)} />
+          </span>
+          {meta.showFollow && (
+            <span style={{ position: 'absolute', left: '50%', bottom: -10, transform: 'translateX(-50%)' }}>
+              <FollowIcon userId={post.authorId} />
+            </span>
           )}
         </div>
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 14,
-            alignItems: 'center',
-            paddingBottom: 2,
-          }}
-        >
-          <button
-            onClick={() => toggleLike(post.id)}
-            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
-          >
-            <Icon
-              name="favorite"
-              size={29}
-              fill={meta.liked ? 1 : 0}
-              color="oklch(0.99 0 0)"
-              style={{ textShadow: '0 1px 8px oklch(0 0 0 / .4)' }}
-            />
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'oklch(0.99 0 0)' }}>{meta.likes}</span>
-          </button>
-          <button
-            onClick={() => navigate(`/post/${post.id}`)}
-            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
-          >
-            <Icon
-              name="mode_comment"
-              size={28}
-              color="oklch(0.99 0 0)"
-              style={{ textShadow: '0 1px 8px oklch(0 0 0 / .4)' }}
-            />
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'oklch(0.99 0 0)' }}>{meta.comments}</span>
-          </button>
-          <button
-            onClick={() => openShare(post.id)}
-            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
-          >
-            <Icon
-              name="ios_share"
-              size={27}
-              color="oklch(0.99 0 0)"
-              style={{ textShadow: '0 1px 8px oklch(0 0 0 / .4)' }}
-            />
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'oklch(0.99 0 0)' }}>{meta.shares}</span>
-          </button>
-          <button onClick={() => toggleSave(post.id)} style={{ display: 'grid', placeItems: 'center' }}>
-            <Icon
-              name="bookmark"
-              size={27}
-              fill={meta.saved ? 1 : 0}
-              color="oklch(0.99 0 0)"
-              style={{ textShadow: '0 1px 8px oklch(0 0 0 / .4)' }}
-            />
-          </button>
-        </div>
+        <button className={`reel__action like${meta.liked ? ' on' : ''}`} onClick={like} aria-pressed={meta.liked} aria-label={t.like}>
+          <span className="disc"><Icon name="favorite" size={26} fill={meta.liked ? 1 : 0} /></span>
+          {meta.likes}
+        </button>
+        <button className="reel__action" onClick={() => openComments(post.id)} aria-label={t.comments}>
+          <span className="disc"><Icon name="mode_comment" size={25} fill={1} /></span>
+          {meta.comments}
+        </button>
+        <button className={`reel__action${meta.reposted ? ' on' : ''}`} onClick={() => { haptic('light'); toggleRepost(post.id); }} aria-label={t.repost}>
+          <span className="disc" style={meta.reposted ? { background: 'color-mix(in srgb, var(--success) 75%, transparent)' } : undefined}><Icon name="repeat" size={25} /></span>
+          {meta.reposts}
+        </button>
+        <button className={`reel__action save${meta.saved ? ' on' : ''}`} onClick={() => { haptic('light'); toggleSave(post.id); }} aria-pressed={meta.saved} aria-label={t.saved}>
+          <span className="disc"><Icon name="bookmark" size={25} fill={meta.saved ? 1 : 0} /></span>
+        </button>
+        <button className="reel__action" onClick={() => openShare(post.id)} aria-label={t.share}>
+          <span className="disc"><Icon name="send" size={23} /></span>
+          {meta.shares}
+        </button>
+        <button className="reel__action" onClick={() => openSheet({ kind: 'post', id: post.id, mine: post.authorId === meId, author: post.authorId })} aria-label={t.more}>
+          <span className="disc" style={{ width: 38, height: 38 }}><Icon name="more_horiz" size={22} /></span>
+        </button>
       </div>
+      <ReelProgress active={active} paused={paused} video={video} />
     </section>
+  );
+}
+
+/** The little "+" that sits under a reel author's avatar. */
+function FollowIcon({ userId }: { userId: string }) {
+  const { toggleFollow, t } = useApp();
+  return (
+    <button
+      onClick={() => { haptic('light'); toggleFollow(userId); }}
+      aria-label={t.follow}
+      style={{ display: 'grid', placeItems: 'center', width: 24, height: 24, borderRadius: '50%', background: 'var(--grad)', color: '#fff', border: '2px solid #fff' }}
+    >
+      <Icon name="add" size={13} />
+    </button>
   );
 }
 
 const REEL_PAGE = 5;
 
 function ForYou() {
-  const { data, user, t, meId, toggleLike } = useApp();
-  const { reelHeight } = useLayout();
+  const { data, user, t, meId } = useApp();
   const posts = useMemo(() => rankedPosts(data, user, meId), [data, user, meId]);
   const [index, setIndex] = useState(0);
   const [visible, setVisible] = useState(REEL_PAGE);
-  const [progress, setProgress] = useState(0);
-  const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(true);
-  const [burst, setBurst] = useState(0);
-  const lastTap = useRef(0);
+  const { wide } = useLayout();
   const scroller = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (paused) return;
-    const id = window.setInterval(() => setProgress((p) => (p + 0.012 > 1 ? 0 : p + 0.012)), 100);
-    return () => window.clearInterval(id);
-  }, [paused, index]);
+    const top = () => scroller.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    window.addEventListener(SCROLL_TOP_EVENT, top);
+    return () => window.removeEventListener(SCROLL_TOP_EVENT, top);
+  }, []);
 
   const onScroll = (e: UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
     const next = Math.round(el.scrollTop / el.clientHeight);
     if (next !== index) {
       setIndex(next);
-      setProgress(0);
-      setPaused(false);
-      // Keep a couple of screens of runway rendered ahead of the viewer.
+      haptic('tick');
       if (next >= visible - 3) setVisible((count) => Math.min(posts.length, count + REEL_PAGE));
     }
   };
 
-  // Pause reacts to the first tap; a second tap within the window likes the post and
-  // undoes that pause, so nothing waits on a timer.
-  const onTap = (postId: string) => {
-    const now = Date.now();
-    if (now - lastTap.current < 320) {
-      lastTap.current = 0;
-      if (!user.likes[postId]) toggleLike(postId);
-      setBurst((b) => b + 1);
-      setPaused((p) => !p);
-      return;
-    }
-    lastTap.current = now;
-    setPaused((p) => !p);
-  };
+  const step = (direction: 1 | -1) => scroller.current?.scrollBy({ top: direction * scroller.current.clientHeight, behavior: 'smooth' });
 
-  const step = (direction: 1 | -1) => {
-    const el = scroller.current;
-    if (!el) return;
-    el.scrollBy({ top: direction * el.clientHeight, behavior: 'smooth' });
-  };
+  if (posts.length === 0) {
+    return (
+      <div style={{ minHeight: 'var(--shell-h)', display: 'grid', placeItems: 'center', paddingTop: 70 }}>
+        <EmptyState icon="movie" title={t.emptyFeed} body={t.emptyReels} />
+      </div>
+    );
+  }
 
   return (
     <div
-      ref={scroller}
-      onScroll={onScroll}
-      tabIndex={0}
-      role="feed"
-      aria-label={t.forYou}
-      onKeyDown={(e) => {
-        if (e.key === 'ArrowDown' || e.key === 'PageDown') {
-          e.preventDefault();
-          step(1);
-        }
-        if (e.key === 'ArrowUp' || e.key === 'PageUp') {
-          e.preventDefault();
-          step(-1);
-        }
-        if (e.key === ' ') {
-          e.preventDefault();
-          setPaused((p) => !p);
-        }
-      }}
+      className="reel-stage"
       style={{
-        height: reelHeight(false),
-        overflowY: 'auto',
-        overflowX: 'hidden',
-        scrollSnapType: 'y mandatory',
-        background: 'oklch(0.115 0.004 265)',
+        height: wide ? 'calc(var(--shell-h) - 32px)' : 'var(--shell-h)',
+        margin: wide ? '16px auto' : 0,
+        maxWidth: wide ? 470 : undefined,
+        borderRadius: wide ? 32 : 0,
+        boxShadow: wide ? 'var(--shadow)' : undefined,
+        ['--reel-bottom' as string]: wide ? '34px' : 'calc(96px + var(--safe-bottom))',
       }}
     >
-      {posts.slice(0, visible).map((post, i) => (
-        <ReelItem
-          key={post.id}
-          post={post}
-          active={i === index}
-          progress={progress}
-          paused={paused}
-          burstKey={burst}
-          muted={muted}
-          onTap={() => onTap(post.id)}
-          onToggleMute={() => setMuted((m) => !m)}
-        />
-      ))}
+      <div
+        ref={scroller}
+        className="reel-scroller"
+        onScroll={onScroll}
+        tabIndex={0}
+        role="feed"
+        aria-label={t.forYou}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown' || e.key === 'PageDown') { e.preventDefault(); step(1); }
+          if (e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); step(-1); }
+          if (e.key.toLowerCase() === 'm') setMuted((m) => !m);
+        }}
+      >
+        {posts.slice(0, visible).map((post, i) => (
+          <ReelItem key={post.id} post={post} active={i === index} muted={muted} />
+        ))}
+      </div>
+      <button className="icon-btn icon-btn--glass" onClick={() => setMuted((m) => !m)} aria-label={muted ? t.unmute : t.mute} style={{ position: 'absolute', right: 12, top: 'calc(70px + var(--safe-top))', zIndex: 8, width: 38, height: 38 }}>
+        <Icon name={muted ? 'volume_off' : 'volume_up'} size={19} />
+      </button>
     </div>
   );
 }
 
 const FEED_PAGE = 6;
 
+function Suggestions() {
+  const { t } = useApp();
+  const list = useSuggested(6);
+  if (list.length === 0) return null;
+  return (
+    <section style={{ margin: '4px 0 14px' }}>
+      <h3 className="section-title" style={{ padding: '0 16px 10px', fontSize: 17 }}>{t.suggested}</h3>
+      <div className="hscroll" style={{ padding: '0 16px 4px' }}>
+        {list.map((u) => (
+          <div key={u.id} className="card" style={{ flex: '0 0 158px', padding: '18px 12px 14px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, textAlign: 'center' }}>
+            <UserAvatar userId={u.id} size={64} />
+            <span style={{ fontSize: 14.5, fontWeight: 650, marginTop: 6, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</span>
+            <span style={{ fontSize: 12.5, color: 'var(--ink3)', marginBottom: 8 }}>{fmt(u.followers)} {t.followers.toLowerCase()}</span>
+            <FollowButton userId={u.id} block />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function Following() {
   const navigate = useNavigate();
-  const { data, user, t, meId, openComposer, userById, loading, refresh } = useApp();
-  const { openStory } = useOverlays();
+  const { data, user, t, meId, loading, refresh } = useApp();
   const [page, setPage] = useState(1);
   const sentinel = useRef<HTMLDivElement | null>(null);
 
-  const posts = data.posts
-    .filter((p) => (user.follows[p.authorId] || p.authorId === meId) && !user.blocked[p.authorId])
-    .sort((a, b) => b.createdAt - a.createdAt);
-  const empty = !data.posts.some((p) => user.follows[p.authorId] || p.authorId === meId);
+  const posts = useMemo(
+    () =>
+      data.posts
+        .filter((p) => (user.follows[p.authorId] || p.authorId === meId) && !user.blocked[p.authorId])
+        .sort((a, b) => b.createdAt - a.createdAt),
+    [data.posts, user.follows, user.blocked, meId],
+  );
+  const followingSomeone = Object.keys(user.follows).length > 0;
   const shown = posts.slice(0, page * FEED_PAGE);
   const hasMore = shown.length < posts.length;
 
   useEffect(() => {
     const node = sentinel.current;
     if (!node || !hasMore) return;
-    const observer = new IntersectionObserver(
-      (entries) => entries[0].isIntersecting && setPage((p) => p + 1),
-      { rootMargin: '400px' },
-    );
+    const observer = new IntersectionObserver((entries) => entries[0].isIntersecting && setPage((p) => p + 1), { rootMargin: '500px' });
     observer.observe(node);
     return () => observer.disconnect();
   }, [hasMore]);
 
   return (
     <PullToRefresh onRefresh={refresh}>
-      <div
-        style={{
-          display: 'flex',
-          gap: 14,
-          overflowX: 'auto',
-          padding: '16px 14px 15px',
-          borderBottom: '1px solid var(--line)',
-        }}
-      >
-        <button
-          onClick={openComposer}
-          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 7, flex: '0 0 auto' }}
-        >
-          <span
-            style={{
-              width: 60,
-              height: 60,
-              borderRadius: '50%',
-              border: '1px dashed var(--line)',
-              display: 'grid',
-              placeItems: 'center',
-              color: 'var(--ink3)',
-            }}
-          >
-            <Icon name="add" size={24} />
-          </span>
-          <span style={{ fontSize: 11.5, color: 'var(--ink3)' }}>{t.story}</span>
-        </button>
-        {data.stories.map((group, i) => {
-          const author = userById(group.userId);
-          return (
-            <button
-              key={group.userId}
-              onClick={() => openStory(i)}
-              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 7, flex: '0 0 auto' }}
-            >
-              <span
-                style={{
-                  width: 60,
-                  height: 60,
-                  borderRadius: '50%',
-                  padding: 2.5,
-                  background: 'var(--accent)',
-                  display: 'grid',
-                  placeItems: 'center',
-                }}
-              >
-                <span
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    borderRadius: '50%',
-                    border: '2px solid var(--bg)',
-                    display: 'grid',
-                    placeItems: 'center',
-                    fontWeight: 600,
-                    fontSize: 15,
-                    color: `oklch(0.16 0.03 ${author.hue})`,
-                    background: `oklch(0.80 0.10 ${author.hue})`,
-                  }}
-                >
-                  {toInitials(author.name)}
-                </span>
-              </span>
-              <span
-                style={{
-                  fontSize: 11.5,
-                  color: 'var(--ink2)',
-                  maxWidth: 64,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {author.name.split(' ')[0]}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      {empty && (
-        <div style={{ padding: '70px 30px', textAlign: 'center' }}>
-          <Icon name="group_add" size={40} color="var(--ink3)" />
-          <p style={{ margin: '14px 0 18px', color: 'var(--ink2)', fontSize: 15, lineHeight: 1.55 }}>
-            {t.tapFollow}
-          </p>
-          <button
-            className="button-primary"
-            onClick={() => navigate('/explore')}
-            style={{
-              padding: '12px 20px',
-              borderRadius: 999,
-              background: 'var(--accent)',
-              color: 'var(--accentInk)',
-              fontWeight: 600,
-              fontSize: 14.5,
-            }}
-          >
-            {t.goExplore}
-          </button>
-        </div>
+      <StoryRail />
+      {!followingSomeone && (
+        <EmptyState
+          icon="group_add"
+          title={t.followingEmptyTitle}
+          body={t.tapFollow}
+          action={<button className="btn btn-primary" onClick={() => navigate('/explore')}>{t.goExplore}</button>}
+        />
       )}
       {loading && <FeedSkeleton count={2} />}
-      {shown.map((post) => (
-        <PostCard key={post.id} post={post} />
-      ))}
+      <div style={{ padding: '0 0' }}>
+        {shown.map((post, i) => (
+          <div key={post.id}>
+            <PostCard post={post} />
+            {i === 1 && <Suggestions />}
+          </div>
+        ))}
+      </div>
+      {posts.length > 0 && !hasMore && (
+        <p style={{ textAlign: 'center', color: 'var(--ink3)', fontSize: 13.5, padding: '18px 0 6px' }}>{t.caughtUp}</p>
+      )}
       {hasMore && (
         <div ref={sentinel}>
           <FeedSkeleton count={1} />
@@ -616,108 +371,61 @@ export function Home() {
   const { t, data } = useApp();
   const { wide } = useLayout();
   const isForYou = location.pathname === '/';
-  const unreadNotifications = data.notifications.filter((n) => !n.read).length;
+  const unread = data.notifications.filter((n) => !n.read).length;
+
+  const bell = (
+    <button className={`icon-btn${isForYou ? ' icon-btn--glass' : ''}`} onClick={() => navigate('/notifications')} aria-label={t.notifications}>
+      <Icon name="notifications" size={22} />
+      {unread > 0 && (
+        <span className="badge" style={{ position: 'absolute', top: -3, right: -3, minWidth: 18, height: 18, fontSize: 10.5, border: '2px solid var(--bg)' }}>
+          {unread}
+        </span>
+      )}
+    </button>
+  );
+  const search = (
+    <button className={`icon-btn${isForYou ? ' icon-btn--glass' : ''}`} onClick={() => navigate('/explore')} aria-label={t.explore}>
+      <Icon name="search" size={22} />
+    </button>
+  );
+
+  const switcher = (
+    <Segmented
+      glass={isForYou}
+      label="Flux"
+      value={isForYou ? 'for' : 'following'}
+      onChange={(k) => navigate(k === 'for' ? '/' : '/following')}
+      options={[
+        { key: 'following', label: t.subs },
+        { key: 'for', label: t.forYou },
+      ]}
+      style={{ width: wide ? 280 : isForYou ? 232 : 176 }}
+    />
+  );
+
+  if (isForYou) {
+    return (
+      <div style={{ position: 'relative' }}>
+        <header style={{ position: 'absolute', zIndex: 20, top: wide ? 32 : 0, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'calc(10px + var(--safe-top)) 12px 0', pointerEvents: 'none', maxWidth: wide ? 470 : undefined, margin: '0 auto' }}>
+          <span style={{ pointerEvents: 'auto', color: '#fff', visibility: wide ? 'hidden' : 'visible' }}>{search}</span>
+          <span style={{ pointerEvents: 'auto' }}>{switcher}</span>
+          <span style={{ pointerEvents: 'auto', color: '#fff' }}>{bell}</span>
+        </header>
+        <ForYou />
+      </div>
+    );
+  }
 
   return (
     <>
-      <header
-        className="screen-header"
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 30,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          height: 52,
-          padding: '0 12px',
-          background: 'color-mix(in oklab, var(--bg) 88%, transparent)',
-          backdropFilter: 'blur(16px)',
-          borderBottom: '1px solid var(--line)',
-        }}
-      >
-        {!wide && (
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, paddingRight: 6 }}>
-            <span
-              style={{
-                fontFamily: 'var(--font-display)',
-                fontWeight: 700,
-                fontSize: 19,
-                letterSpacing: '-0.03em',
-              }}
-            >
-              facemash
-            </span>
-            <span
-              style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--accent)', display: 'block' }}
-            />
-          </div>
-        )}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, margin: '0 auto' }}>
-          <button
-            onClick={() => navigate('/')}
-            style={{
-              padding: '14px 12px',
-              fontSize: 14.5,
-              fontWeight: 600,
-              color: isForYou ? 'var(--ink)' : 'var(--ink3)',
-              borderBottom: `2px solid ${isForYou ? 'var(--accent)' : 'transparent'}`,
-            }}
-          >
-            {t.forYou}
-          </button>
-          <button
-            onClick={() => navigate('/following')}
-            style={{
-              padding: '14px 12px',
-              fontSize: 14.5,
-              fontWeight: 600,
-              color: !isForYou ? 'var(--ink)' : 'var(--ink3)',
-              borderBottom: `2px solid ${!isForYou ? 'var(--accent)' : 'transparent'}`,
-            }}
-          >
-            {t.subs}
-          </button>
-        </div>
-        <button
-          className="hov-surface"
-          onClick={() => navigate('/notifications')}
-          style={{
-            position: 'relative',
-            width: 38,
-            height: 38,
-            borderRadius: '50%',
-            display: 'grid',
-            placeItems: 'center',
-            color: 'var(--ink2)',
-          }}
-        >
-          <Icon name="notifications" size={22} />
-          {unreadNotifications > 0 && (
-            <span
-              style={{
-                position: 'absolute',
-                top: 4,
-                right: 3,
-                minWidth: 16,
-                height: 16,
-                padding: '0 4px',
-                borderRadius: 8,
-                background: 'var(--accent)',
-                color: 'var(--accentInk)',
-                fontFamily: "'Geist',sans-serif",
-                fontSize: 10,
-                fontWeight: 600,
-                display: 'grid',
-                placeItems: 'center',
-              }}
-            >
-              {unreadNotifications}
-            </span>
-          )}
-        </button>
+      <header className="topbar" style={{ justifyContent: 'space-between' }}>
+        {wide ? <span style={{ width: 42 }} /> : <Brand size={22} />}
+        {switcher}
+        <span style={{ display: 'flex', gap: 2 }}>
+          {bell}
+        </span>
       </header>
-      {isForYou ? <ForYou /> : <Following />}
+      <Following />
     </>
   );
 }

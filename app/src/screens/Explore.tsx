@@ -1,464 +1,235 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Avatar, Icon } from '../components/Icon';
-import { mediaTone } from '../lib/mediaTone';
+import { EmptyState, FollowButton, PersonRow, Segmented, UserAvatar } from '../components/ui';
 import { PostCard } from '../components/PostCard';
-import { useApp } from '../store';
+import { PostTile } from '../components/Tile';
 import { useTrends } from '../components/Shell';
+import { useApp } from '../store';
+import { INTERESTS } from '../data/seed';
+import { addRecent, clearRecents, removeRecent, useRecents } from '../lib/recents';
 import { rankedPosts } from '../lib/ranking';
 import { fmt, initials as toInitials } from '../lib/format';
 
-const sectionTitle = {
-  margin: '22px 16px 10px',
-  fontFamily: 'var(--font-display)',
-  fontSize: 14,
-  fontWeight: 700,
-  letterSpacing: '0.02em',
-  textTransform: 'uppercase',
-  color: 'var(--ink3)',
-} as const;
-
-const browseTitle = {
-  margin: '26px 16px 10px',
-  fontFamily: 'var(--font-display)',
-  fontSize: 17,
-  fontWeight: 700,
-  letterSpacing: '-0.015em',
-} as const;
+type Scope = 'all' | 'people' | 'tags' | 'posts';
 
 export function Explore() {
   const navigate = useNavigate();
-  const { data, user, t, meId, toggleFollow } = useApp();
-  const [query, setQuery] = useState('');
-  const [searching, setSearching] = useState(false);
-  const timer = useRef<number | undefined>(undefined);
+  const [params, setParams] = useSearchParams();
+  const { data, user, t, meId } = useApp();
   const trends = useTrends();
+  const recents = useRecents();
+  const [query, setQuery] = useState(params.get('q') ?? '');
+  const [focused, setFocused] = useState(false);
+  const [scope, setScope] = useState<Scope>('all');
+  const [category, setCategory] = useState<string | null>(null);
 
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-
-  const onQuery = (value: string) => {
-    setQuery(value);
-    setSearching(!!value.trim());
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setSearching(false), 320);
-  };
+  useEffect(() => {
+    const q = params.get('q');
+    if (q !== null && q !== query) setQuery(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params]);
 
   const q = query.trim().toLowerCase();
+  const needle = q.replace(/^[@#]/, '');
+
   const people = useMemo(
-    () =>
-      q
-        ? data.users.filter(
-            (u) =>
-              u.id !== meId &&
-              (u.name.toLowerCase().includes(q) || u.username.includes(q.replace('@', ''))),
-          )
-        : [],
-    [data.users, q, meId],
+    () => (q ? data.users.filter((u) => u.id !== meId && !user.blocked[u.id] && (u.name.toLowerCase().includes(needle) || u.username.toLowerCase().includes(needle))) : []),
+    [data.users, q, needle, meId, user.blocked],
   );
   const posts = useMemo(
-    () =>
-      q
-        ? data.posts
-            .filter(
-              (p) => p.text.toLowerCase().includes(q) || p.tags.join(' ').includes(q.replace('#', '')),
-            )
-            .slice(0, 8)
-        : [],
-    [data.posts, q],
+    () => (q ? data.posts.filter((p) => !user.blocked[p.authorId] && (p.text.toLowerCase().includes(needle) || p.tags.join(' ').toLowerCase().includes(needle))).slice(0, 12) : []),
+    [data.posts, q, needle, user.blocked],
   );
   const tags = useMemo(() => {
     if (!q) return [];
-    const needle = q.replace('#', '');
     const counts: Record<string, number> = {};
-    data.posts.forEach((p) =>
-      p.tags.forEach((tag) => {
-        if (tag.includes(needle)) counts[tag] = (counts[tag] ?? 0) + 1;
-      }),
-    );
+    data.posts.forEach((p) => p.tags.forEach((tag) => tag.toLowerCase().includes(needle) && (counts[tag] = (counts[tag] ?? 0) + 1)));
     return Object.keys(counts).map((tag) => ({ tag, count: counts[tag] }));
-  }, [data.posts, q]);
+  }, [data.posts, q, needle]);
 
-  const popular = useMemo(() => rankedPosts(data, user, meId).slice(0, 9), [data, user, meId]);
-  const suggested = data.users.filter((u) => u.id !== meId && !user.blocked[u.id]).slice(0, 4);
-  const goTag = (tag: string) => navigate(`/tag/${encodeURIComponent(tag.replace('#', ''))}`);
+  const popular = useMemo(() => {
+    const ranked = rankedPosts(data, user, meId);
+    return (category ? ranked.filter((p) => p.category === category) : ranked).slice(0, 18);
+  }, [data, user, meId, category]);
+  const creators = useMemo(
+    () => data.users.filter((u) => u.id !== meId && !user.blocked[u.id] && !user.follows[u.id]).sort((a, b) => b.followers - a.followers).slice(0, 8),
+    [data.users, user.blocked, user.follows, meId],
+  );
+
+  const submit = (value: string) => {
+    setQuery(value);
+    addRecent(value);
+    setParams(value ? { q: value } : {}, { replace: true });
+  };
+  const goTag = (tag: string) => { addRecent(tag); navigate(`/tag/${encodeURIComponent(tag.replace('#', ''))}`); };
+  const searching = !!q;
+  const showRecents = focused && !q && recents.length > 0;
 
   return (
     <>
-      <header
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 30,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          padding: '11px 12px',
-          background: 'color-mix(in oklab, var(--bg) 88%, transparent)',
-          backdropFilter: 'blur(16px)',
-          borderBottom: '1px solid var(--line)',
-        }}
-      >
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 9,
-            padding: '11px 14px',
-            borderRadius: 999,
-            background: 'var(--surface)',
-            border: '1px solid var(--line)',
-          }}
-        >
-          <Icon name="search" size={20} color="var(--ink3)" />
-          <input
-            value={query}
-            onChange={(e) => onQuery(e.target.value)}
-            placeholder={t.searchPh}
-            style={{ flex: 1, minWidth: 0, background: 'none', border: 0, outline: 'none', fontSize: 15 }}
-          />
-          {!!q && (
-            <button onClick={() => onQuery('')} style={{ color: 'var(--ink3)' }}>
-              <Icon name="close" size={19} />
-            </button>
-          )}
+      <header className="topbar" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10, paddingBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, minHeight: 48, padding: '0 16px', borderRadius: 999, background: 'var(--surface2)', border: `1px solid ${focused ? 'var(--accent)' : 'var(--line)'}`, boxShadow: focused ? '0 0 0 4px var(--accentSoft)' : 'none', transition: 'all 180ms' }}>
+            <Icon name="search" size={20} color="var(--ink3)" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setTimeout(() => setFocused(false), 120)}
+              onKeyDown={(e) => e.key === 'Enter' && submit(query.trim())}
+              placeholder={t.searchPh}
+              enterKeyHint="search"
+              style={{ flex: 1, minWidth: 0, background: 'none', border: 0, outline: 'none', fontSize: 15.5 }}
+            />
+            {!!query && (
+              <button onClick={() => submit('')} aria-label="Effacer" style={{ color: 'var(--ink3)', display: 'grid' }}>
+                <Icon name="close" size={19} />
+              </button>
+            )}
+          </label>
         </div>
+        {searching && (
+          <Segmented<Scope>
+            value={scope}
+            onChange={setScope}
+            options={[
+              { key: 'all', label: t.all },
+              { key: 'people', label: t.people },
+              { key: 'tags', label: t.hashtagsTitle },
+              { key: 'posts', label: t.posts },
+            ]}
+          />
+        )}
       </header>
 
-      {searching && (
-        <div style={{ padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {[1, 2, 3, 4].map((k) => (
-            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: '50%',
-                  background:
-                    'var(--surface2)',
-                  animation: 'fmPulse 1.3s var(--ease-standard) infinite',
-                  display: 'block',
-                }}
-              />
-              <span
-                style={{
-                  flex: 1,
-                  height: 13,
-                  borderRadius: 7,
-                  background:
-                    'var(--surface2)',
-                  animation: 'fmPulse 1.3s var(--ease-standard) infinite',
-                  display: 'block',
-                }}
-              />
+      {showRecents && (
+        <div style={{ padding: '16px 16px 6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+            <p className="eyebrow" style={{ flex: 1 }}>{t.recent}</p>
+            <button onClick={clearRecents} style={{ fontSize: 13, color: 'var(--accent-fg)', fontWeight: 600 }}>{t.clearAll}</button>
+          </div>
+          {recents.map((r) => (
+            <div key={r} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0' }}>
+              <Icon name="history" size={20} color="var(--ink3)" />
+              <button onMouseDown={(e) => e.preventDefault()} onClick={() => submit(r)} style={{ flex: 1, textAlign: 'left', fontSize: 15 }}>{r}</button>
+              <button onMouseDown={(e) => e.preventDefault()} onClick={() => removeRecent(r)} aria-label="Retirer" style={{ color: 'var(--ink3)', display: 'grid' }}><Icon name="close" size={17} /></button>
             </div>
           ))}
         </div>
       )}
 
-      {!!q && !searching && (
-        <div style={{ padding: '6px 0 20px' }}>
-          {people.length > 0 && (
-            <>
-              <h3 style={{ ...sectionTitle, margin: '18px 16px 10px' }}>{t.people}</h3>
-              {people.map((u) => {
-                const followed = !!user.follows[u.id];
-                return (
-                  <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px' }}>
-                    <button onClick={() => navigate(`/profile/${u.id}`)} style={{ padding: 0 }}>
-                      <Avatar hue={u.hue} initials={toInitials(u.name)} size={46} fontSize={15} />
-                    </button>
-                    <button
-                      onClick={() => navigate(`/profile/${u.id}`)}
-                      style={{ flex: 1, minWidth: 0, textAlign: 'left' }}
-                    >
-                      <div style={{ fontSize: 15, fontWeight: 600 }}>{u.name}</div>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          color: 'var(--ink3)',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        @{u.username} · {fmt(u.followers)} {t.followers}
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => toggleFollow(u.id)}
-                      style={{
-                        padding: '8px 15px',
-                        borderRadius: 999,
-                        fontSize: 13.5,
-                        fontWeight: 600,
-                        background: followed ? 'transparent' : 'var(--accent)',
-                        color: followed ? 'var(--ink2)' : 'var(--accentInk)',
-                        border: `1px solid ${followed ? 'var(--line)' : 'var(--accent)'}`,
-                      }}
-                    >
-                      {followed ? t.unfollow : t.follow}
-                    </button>
-                  </div>
-                );
-              })}
-            </>
+      {searching ? (
+        <div style={{ padding: '4px 0 20px' }} className="stagger">
+          {(scope === 'all' || scope === 'people') && people.length > 0 && (
+            <section>
+              <h3 className="eyebrow" style={{ margin: '18px 16px 4px' }}>{t.people}</h3>
+              {people.slice(0, scope === 'all' ? 4 : 30).map((u) => (
+                <PersonRow key={u.id} userId={u.id} sub={`@${u.username} · ${fmt(u.followers)} ${t.followers.toLowerCase()}`} action={<FollowButton userId={u.id} />} />
+              ))}
+            </section>
           )}
-
-          {tags.length > 0 && (
-            <>
-              <h3 style={sectionTitle}>{t.hashtagsTitle}</h3>
+          {(scope === 'all' || scope === 'tags') && tags.length > 0 && (
+            <section>
+              <h3 className="eyebrow" style={{ margin: '18px 16px 6px' }}>{t.hashtagsTitle}</h3>
               {tags.map((tag) => (
-                <button
-                  key={tag.tag}
-                  className="hov-surface"
-                  onClick={() => goTag(tag.tag)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 13,
-                    padding: '11px 16px',
-                    width: '100%',
-                    textAlign: 'left',
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 44,
-                      height: 44,
-                      borderRadius: 12,
-                      background: 'var(--surface2)',
-                      display: 'grid',
-                      placeItems: 'center',
-                      color: 'var(--ink2)',
-                    }}
-                  >
-                    <Icon name="tag" size={21} />
-                  </span>
+                <button key={tag.tag} className="row-hover" onClick={() => goTag(tag.tag)} style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '10px 16px', width: '100%', textAlign: 'left' }}>
+                  <span style={{ display: 'grid', placeItems: 'center', width: 46, height: 46, borderRadius: 16, background: 'var(--grad-soft)', color: 'var(--accent-fg)' }}><Icon name="tag" size={22} /></span>
                   <span>
-                    <span style={{ display: 'block', fontSize: 15, fontWeight: 600 }}>{tag.tag}</span>
-                    <span style={{ display: 'block', fontSize: 13, color: 'var(--ink3)' }}>
-                      {tag.count} {t.posts.toLowerCase()}
-                    </span>
+                    <span style={{ display: 'block', fontSize: 15, fontWeight: 650 }}>{tag.tag}</span>
+                    <span style={{ display: 'block', fontSize: 13, color: 'var(--ink3)' }}>{tag.count} {t.posts.toLowerCase()}</span>
                   </span>
                 </button>
               ))}
-            </>
+            </section>
           )}
-
-          {posts.length > 0 && (
-            <>
-              <h3 style={sectionTitle}>{t.posts}</h3>
-              {posts.map((post) => (
-                <PostCard key={post.id} post={post} />
-              ))}
-            </>
+          {(scope === 'all' || scope === 'posts') && posts.length > 0 && (
+            <section>
+              <h3 className="eyebrow" style={{ margin: '18px 16px 10px' }}>{t.posts}</h3>
+              {scope === 'posts' ? posts.map((p) => <PostCard key={p.id} post={p} />) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, padding: '0 12px' }}>
+                  {posts.slice(0, 6).map((p) => <PostTile key={p.id} post={p} />)}
+                </div>
+              )}
+            </section>
           )}
-
-          {!people.length && !posts.length && !tags.length && (
-            <div style={{ padding: '80px 30px', textAlign: 'center' }}>
-              <Icon name="search_off" size={40} color="var(--ink3)" />
-              <p style={{ margin: '14px 0 0', color: 'var(--ink2)', fontSize: 15 }}>{t.noResults}</p>
-            </div>
-          )}
+          {!people.length && !posts.length && !tags.length && <EmptyState icon="search_off" title={t.noResults} body={t.noResultsHint} />}
         </div>
-      )}
-
-      {!q && (
-        <div style={{ padding: '4px 0 26px' }}>
-          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: '16px 16px 6px' }}>
-            {trends.map((trend) => (
-              <button
-                key={trend.tag}
-                className="hov-accent-line"
-                onClick={() => goTag(trend.tag)}
-                style={{
-                  flex: '0 0 auto',
-                  padding: '9px 15px',
-                  borderRadius: 999,
-                  background: 'var(--surface)',
-                  border: '1px solid var(--line)',
-                  fontSize: 13.5,
-                  fontWeight: 500,
-                  color: 'var(--ink2)',
-                }}
-              >
-                {trend.tag}
-              </button>
+      ) : (
+        <div style={{ padding: '4px 0 30px' }}>
+          <div className="hscroll" style={{ padding: '14px 16px 4px' }}>
+            <button className="chip" aria-pressed={category === null} onClick={() => setCategory(null)}><Icon name="sparkle" size={15} />{t.forYou}</button>
+            {INTERESTS.map((c) => (
+              <button key={c} className="chip" aria-pressed={category === c} onClick={() => setCategory(category === c ? null : c)}>{c}</button>
             ))}
           </div>
 
-          <h3 style={{ ...browseTitle, margin: '20px 16px 12px' }}>{t.trending}</h3>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(3,minmax(0,1fr))',
-              gap: 3,
-              padding: '0 3px',
-            }}
-          >
-            {popular.map((post) => {
-              const hue = data.users.find((u) => u.id === post.authorId)?.hue ?? 265;
-              const thumb = post.media[0]?.label ?? post.text.slice(0, 60);
-              return (
-                <button
-                  key={post.id}
-                  onClick={() => navigate(`/post/${post.id}`)}
-                  style={{
-                    position: 'relative',
-                    aspectRatio: '9/14',
-                    overflow: 'hidden',
-                    background: mediaTone(hue),
-                  }}
-                >
-                  <span
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      display: 'grid',
-                      placeItems: 'center',
-                      padding: 10,
-                      fontFamily: 'ui-monospace,monospace',
-                      fontSize: 9.5,
-                      lineHeight: 1.4,
-                      letterSpacing: '0.05em',
-                      textTransform: 'uppercase',
-                      color: `oklch(0.93 0.02 ${hue})`,
-                      textAlign: 'center',
-                    }}
-                  >
-                    {thumb}
-                  </span>
-                  <span
-                    style={{
-                      position: 'absolute',
-                      left: 7,
-                      bottom: 7,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 3,
-                      color: 'oklch(0.99 0 0)',
-                      fontSize: 11,
-                      fontWeight: 600,
-                      textShadow: '0 1px 6px oklch(0 0 0 / .5)',
-                    }}
-                  >
-                    <Icon name="favorite" size={14} fill={1} />
-                    {fmt(post.likes)}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          <h3 style={browseTitle}>{t.suggested}</h3>
-          {suggested.map((u) => {
-            const followed = !!user.follows[u.id];
-            return (
-              <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 16px' }}>
-                <button onClick={() => navigate(`/profile/${u.id}`)} style={{ padding: 0 }}>
-                  <Avatar hue={u.hue} initials={toInitials(u.name)} size={46} fontSize={15} />
-                </button>
-                <button
-                  onClick={() => navigate(`/profile/${u.id}`)}
-                  style={{ flex: 1, minWidth: 0, textAlign: 'left' }}
-                >
-                  <div style={{ fontSize: 15, fontWeight: 600 }}>{u.name}</div>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      color: 'var(--ink3)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {u.bio}
-                  </div>
-                </button>
-                <button
-                  onClick={() => toggleFollow(u.id)}
-                  style={{
-                    padding: '8px 15px',
-                    borderRadius: 999,
-                    fontSize: 13.5,
-                    fontWeight: 600,
-                    background: followed ? 'transparent' : 'var(--accent)',
-                    color: followed ? 'var(--ink2)' : 'var(--accentInk)',
-                    border: `1px solid ${followed ? 'var(--line)' : 'var(--accent)'}`,
-                  }}
-                >
-                  {followed ? t.unfollow : t.follow}
-                </button>
+          {trends.length > 0 && !category && (
+            <>
+              <h3 className="section-title" style={{ margin: '22px 16px 12px' }}>{t.trending}</h3>
+              <div className="hscroll" style={{ padding: '0 16px' }}>
+                {trends.slice(0, 5).map((trend, i) => (
+                  <button key={trend.tag} onClick={() => goTag(trend.tag)} className="media-art" style={{ ['--h' as string]: (i * 67 + 265) % 360, flex: '0 0 148px', height: 104, borderRadius: 22, padding: 14, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', textAlign: 'left', color: '#fff' }}>
+                    <span className="display" style={{ position: 'relative', fontSize: 18, fontWeight: 800 }}>{trend.tag}</span>
+                    <span style={{ position: 'relative', fontSize: 12, opacity: 0.85 }}>{trend.count}</span>
+                  </button>
+                ))}
               </div>
-            );
-          })}
+            </>
+          )}
 
-          <h3 style={browseTitle}>{t.groups}</h3>
-          {data.groups.map((group) => (
-            <button
-              key={group.id}
-              className="hov-surface"
-              onClick={() => navigate(`/messages/group/${group.id}`)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: '9px 16px',
-                width: '100%',
-                textAlign: 'left',
-              }}
-            >
-              <Avatar hue={group.hue} initials={toInitials(group.name)} size={46} radius="14px" fontSize={14} />
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: 15, fontWeight: 600 }}>{group.name}</span>
-                <span
-                  style={{
-                    display: 'block',
-                    fontSize: 13,
-                    color: 'var(--ink3)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {group.members.length} {t.members} · {group.description}
-                </span>
-              </span>
-            </button>
-          ))}
+          <h3 className="section-title" style={{ margin: '26px 16px 12px' }}>{category ?? t.discover}</h3>
+          {popular.length === 0 ? (
+            <EmptyState icon="explore" title={t.emptyFeed} />
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, padding: '0 12px' }}>
+              {popular.map((p, i) => (
+                <PostTile key={p.id} post={p} ratio={i % 5 === 0 ? '4 / 5' : i % 3 === 0 ? '1 / 1' : '3 / 4'} />
+              ))}
+            </div>
+          )}
 
-          <h3 style={browseTitle}>{t.channels}</h3>
-          {data.channels.map((channel) => (
-            <button
-              key={channel.id}
-              className="hov-surface"
-              onClick={() => navigate(`/messages/channel/${channel.id}`)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: '9px 16px',
-                width: '100%',
-                textAlign: 'left',
-              }}
-            >
-              <Avatar
-                hue={channel.hue}
-                initials={toInitials(channel.name)}
-                size={46}
-                radius="14px"
-                fontSize={14}
-              />
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: 15, fontWeight: 600 }}>{channel.name}</span>
-                <span style={{ display: 'block', fontSize: 13, color: 'var(--ink3)' }}>
-                  @{channel.slug} · {fmt(channel.subscribers)} {t.subscribers}
-                </span>
-              </span>
-              <Icon name="chevron_right" size={20} color="var(--ink3)" />
-            </button>
-          ))}
+          {creators.length > 0 && !category && (
+            <>
+              <h3 className="section-title" style={{ margin: '28px 16px 12px' }}>{t.creators}</h3>
+              <div className="hscroll" style={{ padding: '0 16px' }}>
+                {creators.map((u) => (
+                  <div key={u.id} className="card" style={{ flex: '0 0 168px', padding: '18px 12px 14px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                    <UserAvatar userId={u.id} size={68} onClick={() => navigate(`/profile/${u.id}`)} />
+                    <span style={{ marginTop: 10, fontSize: 14.5, fontWeight: 650, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</span>
+                    <span style={{ fontSize: 12.5, color: 'var(--ink3)', marginBottom: 10 }}>{fmt(u.followers)} {t.followers.toLowerCase()}</span>
+                    <FollowButton userId={u.id} block />
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {!category && (data.groups.length > 0 || data.channels.length > 0) && (
+            <>
+              <h3 className="section-title" style={{ margin: '28px 16px 6px' }}>{t.communities}</h3>
+              {data.groups.map((g) => (
+                <button key={g.id} className="row-hover" onClick={() => navigate(`/messages/group/${g.id}`)} style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '10px 16px', width: '100%', textAlign: 'left' }}>
+                  <Avatar hue={g.hue} initials={toInitials(g.name)} size={48} radius="16px" />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 15, fontWeight: 650 }}>{g.name}</span>
+                    <span style={{ display: 'block', fontSize: 13, color: 'var(--ink3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.members.length} {t.members} · {g.description}</span>
+                  </span>
+                  <Icon name="chevron_right" size={19} color="var(--ink3)" />
+                </button>
+              ))}
+              {data.channels.map((c) => (
+                <button key={c.id} className="row-hover" onClick={() => navigate(`/messages/channel/${c.id}`)} style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '10px 16px', width: '100%', textAlign: 'left' }}>
+                  <Avatar hue={c.hue} initials={toInitials(c.name)} size={48} radius="16px" />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 15, fontWeight: 650 }}>{c.name}</span>
+                    <span style={{ display: 'block', fontSize: 13, color: 'var(--ink3)' }}>@{c.slug} · {fmt(c.subscribers)} {t.subscribers}</span>
+                  </span>
+                  <Icon name="chevron_right" size={19} color="var(--ink3)" />
+                </button>
+              ))}
+            </>
+          )}
         </div>
       )}
     </>

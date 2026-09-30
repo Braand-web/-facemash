@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Shell } from './components/Shell';
+import { Brand } from './components/ui';
 import { Overlays } from './components/Overlays';
 import { Auth } from './screens/Auth';
 import { Onboarding } from './screens/Onboarding';
@@ -13,49 +14,18 @@ import { Settings } from './screens/Settings';
 import { useApp } from './store';
 import { demoMode, hasBackend } from './lib/supabase';
 
-function StatusNotice({
-  title,
-  body,
-  action,
-}: {
-  title: string;
-  body: string;
-  action?: { label: string; onClick: () => void };
-}) {
+function StatusNotice({ title, body, action }: { title: string; body: string; action?: { label: string; onClick: () => void } }) {
   return (
-    <main
-      className="auth-screen"
-      style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', padding: 24 }}
-    >
-      <section className="auth-card" role="status" style={{ width: '100%', maxWidth: 440, padding: 28 }}>
-        <div
-          style={{
-            marginBottom: 28,
-            fontFamily: 'var(--font-display)',
-            fontSize: 30,
-            fontWeight: 700,
-            letterSpacing: '-0.035em',
-          }}
-        >
-          facemash<span style={{ color: 'var(--accent)' }}>.</span>
+    <main className="auth-screen" style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', padding: 24 }}>
+      <section className="auth-card" role="status" style={{ width: '100%', maxWidth: 440, textAlign: 'center' }}>
+        <div style={{ marginBottom: 22 }}>
+          <Brand size={30} />
         </div>
-        <h1 style={{ margin: '0 0 10px', fontSize: 23, fontWeight: 650, letterSpacing: '-0.02em' }}>{title}</h1>
+        {!action && <span className="spinner" style={{ width: 26, height: 26, color: 'var(--accent)', margin: '0 auto 18px' }} />}
+        <h1 className="display" style={{ margin: '0 0 10px', fontSize: 23, fontWeight: 800, letterSpacing: '-0.035em' }}>{title}</h1>
         <p style={{ margin: 0, color: 'var(--ink3)', fontSize: 14.5, lineHeight: 1.6 }}>{body}</p>
         {action && (
-          <button
-            className="button-primary"
-            onClick={action.onClick}
-            style={{
-              marginTop: 22,
-              width: '100%',
-              padding: 13,
-              borderRadius: 13,
-              background: 'var(--accent)',
-              color: 'var(--accentInk)',
-              fontSize: 14,
-              fontWeight: 600,
-            }}
-          >
+          <button className="btn btn-primary btn-lg btn-block" onClick={action.onClick} style={{ marginTop: 22 }}>
             {action.label}
           </button>
         )}

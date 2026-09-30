@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { makeStory } from '../lib/stories';
 import type { UserState } from '../store';
 import type {
   AppNotification,
@@ -262,11 +263,13 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
   const storyGroups: StoryGroup[] = [];
   ((stories.data as Row[] | null) ?? []).forEach((row) => {
     const authorId = String(row.author_id);
-    const item = { label: String(row.label), createdAt: asDate(row.created_at) };
+    const item = makeStory(String(row.label), asDate(row.created_at), String(row.id));
     const existing = storyGroups.find((group) => group.userId === authorId);
     if (existing) existing.items.push(item);
     else storyGroups.push({ userId: authorId, items: [item] });
   });
+  // Your own story leads, so the rail and the viewer agree on the order.
+  storyGroups.sort((a, b) => Number(b.userId === profileId) - Number(a.userId === profileId));
 
   const notificationList: AppNotification[] = ((notifications.data as Row[] | null) ?? []).map((row) => ({
     id: String(row.id),
@@ -418,6 +421,25 @@ export const remote = {
 
   block: (profileId: string, targetId: string) =>
     run('block', () => table('blocks').insert({ blocker_id: profileId, blocked_id: targetId })),
+
+  unblock: (profileId: string, targetId: string) =>
+    run('unblock', () => table('blocks').delete().eq('blocker_id', profileId).eq('blocked_id', targetId)),
+
+  /** Returns the new row id so the story can be deleted later. */
+  createStory: async (profileId: string, label: string): Promise<string | null> => {
+    if (!supabase) return null;
+    const { data, error } = await table('stories')
+      .insert({ author_id: profileId, label })
+      .select('id')
+      .single();
+    if (error || !data) {
+      console.error('facemash: createStory failed', error);
+      return null;
+    }
+    return String((data as Row).id);
+  },
+
+  deleteStory: (storyId: string) => run('deleteStory', () => table('stories').delete().eq('id', storyId)),
 
   report: (profileId: string, target: { postId?: string; profileId?: string }) =>
     run('report', () =>
