@@ -13,6 +13,7 @@ import { loadProfileId, loadSnapshot, remote, remoteEnabled, subscribeRealtime }
 import { demoMode, supabase } from './lib/supabase';
 import { dict, type Dict } from './lib/i18n';
 import { mmss } from './lib/format';
+import { encodeStory, makeStory } from './lib/stories';
 import type {
   AppNotification,
   Channel,
@@ -28,6 +29,7 @@ import type {
   PostKind,
   Role,
   Session,
+  StoryItem,
   Theme,
   ThreadKind,
   User,
@@ -173,7 +175,13 @@ interface AppValue {
   toggleRepost: (postId: string) => void;
   toggleFollow: (userId: string) => void;
   blockUser: (userId: string) => void;
+  unblockUser: (userId: string) => void;
+  reportPost: (postId: string) => void;
+  reportUser: (userId: string) => void;
   addComment: (postId: string, text: string, parentId?: string | null) => void;
+  /* stories */
+  createStory: (draft: { kind: 'text' | 'photo' | 'video'; text?: string; url?: string; bg: number }) => Promise<boolean>;
+  deleteStory: (item: StoryItem) => void;
   /* posts */
   composer: ComposerState;
   setComposer: (patch: Partial<ComposerState>) => void;
@@ -638,6 +646,82 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (syncing) void remote.block(meId, userId);
     },
     [showToast, t, syncing, meId],
+  );
+
+  const unblockUser = useCallback(
+    (userId: string) => {
+      setUser((prev) => {
+        const next = { ...prev.blocked };
+        delete next[userId];
+        return { ...prev, blocked: next };
+      });
+      showToast(t.unblocked);
+      if (syncing) void remote.unblock(meId, userId);
+    },
+    [showToast, t, syncing, meId],
+  );
+
+  const reportPost = useCallback(
+    (postId: string) => {
+      showToast(t.reported);
+      if (syncing) void remote.report(meId, { postId });
+    },
+    [showToast, t, syncing, meId],
+  );
+
+  const reportUser = useCallback(
+    (userId: string) => {
+      showToast(t.reported);
+      if (syncing) void remote.report(meId, { profileId: userId });
+    },
+    [showToast, t, syncing, meId],
+  );
+
+  /** Publishes a story for 24 hours. Media has already been uploaded by the caller. */
+  const createStory = useCallback(
+    async (draft: { kind: 'text' | 'photo' | 'video'; text?: string; url?: string; bg: number }) => {
+      const label = encodeStory(draft);
+      const item = makeStory(label, Date.now());
+      let id: string | undefined;
+      if (syncing) {
+        const saved = await remote.createStory(meId, label);
+        if (!saved) {
+          showToast(t.storyError);
+          return false;
+        }
+        id = saved;
+      } else {
+        id = newId();
+      }
+      const stored: StoryItem = { ...item, id };
+      setData((prev) => {
+        const mine = prev.stories.find((group) => group.userId === meId);
+        const rest = prev.stories.filter((group) => group.userId !== meId);
+        return {
+          ...prev,
+          stories: [{ userId: meId, items: [...(mine?.items ?? []), stored] }, ...rest],
+        };
+      });
+      showToast(t.storyPublished);
+      return true;
+    },
+    [meId, showToast, t, syncing],
+  );
+
+  const deleteStory = useCallback(
+    (item: StoryItem) => {
+      setData((prev) => ({
+        ...prev,
+        stories: prev.stories
+          .map((group) =>
+            group.userId === meId ? { ...group, items: group.items.filter((entry) => entry.createdAt !== item.createdAt) } : group,
+          )
+          .filter((group) => group.items.length > 0),
+      }));
+      showToast(t.deleted);
+      if (syncing && item.id) void remote.deleteStory(item.id);
+    },
+    [meId, showToast, t, syncing],
   );
 
   const addComment = useCallback(
@@ -1371,6 +1455,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toggleRepost,
     toggleFollow,
     blockUser,
+    unblockUser,
+    reportPost,
+    reportUser,
+    createStory,
+    deleteStory,
     addComment,
     composer,
     setComposer,

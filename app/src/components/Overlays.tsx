@@ -1,62 +1,88 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Avatar, Icon } from './Icon';
-import { mediaTone } from '../lib/mediaTone';
+import { Sheet, Segmented } from './ui';
+import { CommentsSheet } from './Comments';
+import { Palette } from './Palette';
+import { StoryComposer, StoryViewer } from './Stories';
+import { InstallPrompt } from './InstallPrompt';
+import { useTrends } from './Shell';
 import { useApp } from '../store';
 import { useOverlays } from '../overlays';
-import { useDialog } from '../lib/dialog';
 import { uploadFile } from '../lib/upload';
-import { InstallPrompt } from './InstallPrompt';
-import { initials as toInitials, rel } from '../lib/format';
+import { copyText, postUrl, profileUrl, shareLink } from '../lib/share';
+import { haptic } from '../lib/haptics';
+import { initials as toInitials } from '../lib/format';
 import type { PostKind, Visibility } from '../types';
 
-const sheetShell = {
-  width: '100%',
-  maxWidth: 520,
-  background: 'var(--bg)',
-  borderRadius: '22px 22px 0 0',
-  borderTop: '1px solid var(--line)',
-  boxShadow: 'var(--shadow)',
-} as const;
+const DRAFT_KEY = 'facemash.composer.draft';
+const LIMIT = 500;
 
-const backdrop = {
-  position: 'fixed',
-  inset: 0,
-  display: 'flex',
-  alignItems: 'flex-end',
-  justifyContent: 'center',
-  background: 'oklch(0.1 0 0 / 0.5)',
-} as const;
+const kindOf = (media: { video?: boolean }[]): PostKind =>
+  media.some((m) => m.video) ? 'video' : media.length > 1 ? 'carousel' : media.length === 1 ? 'photo' : 'text';
+
+function CountRing({ value }: { value: number }) {
+  const r = 11;
+  const c = 2 * Math.PI * r;
+  const p = Math.min(1, value / LIMIT);
+  const near = value > LIMIT * 0.9;
+  return (
+    <svg width="30" height="30" viewBox="0 0 30 30" aria-label={`${value}/${LIMIT}`} role="img">
+      <circle cx="15" cy="15" r={r} fill="none" stroke="var(--line-strong)" strokeWidth="3" />
+      <circle cx="15" cy="15" r={r} fill="none" stroke={near ? 'var(--warning)' : 'var(--accent)'} strokeWidth="3" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - p)} transform="rotate(-90 15 15)" style={{ transition: 'stroke-dashoffset 200ms' }} />
+    </svg>
+  );
+}
 
 function Composer() {
-  const { t, composer, setComposer, closeComposer, publish, meId, syncing, showToast } = useApp();
+  const { t, composer, setComposer, closeComposer, publish, meId, me, syncing, showToast } = useApp();
   const navigate = useNavigate();
-  const panel = useDialog<HTMLDivElement>(closeComposer);
+  const trends = useTrends();
   const filePicker = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
-  // The upload is async, so the handler reads the latest media list from a ref.
-  const composerMediaRef = useRef(composer.media);
-  composerMediaRef.current = composer.media;
+  const [dragging, setDragging] = useState(false);
+  const [showLocation, setShowLocation] = useState(false);
+  const mediaRef = useRef(composer.media);
+  mediaRef.current = composer.media;
 
-  const onFiles = async (files: FileList | null) => {
-    if (!files?.length) return;
+  // Drafts: text, tags, place and audience survive an accidental close or reload.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (composer.open && !wasOpen.current && !composer.editing && !composer.text && !composer.media.length) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null') as Partial<typeof composer> | null;
+        if (saved && (saved.text || saved.tags)) {
+          setComposer({ text: saved.text ?? '', tags: saved.tags ?? '', location: saved.location ?? '', visibility: saved.visibility ?? 'public' });
+          showToast(t.draftRestored);
+        }
+      } catch {
+        /* unreadable draft: start fresh */
+      }
+    }
+    wasOpen.current = composer.open;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [composer.open]);
+
+  useEffect(() => {
+    if (!composer.open || composer.editing) return;
+    try {
+      if (composer.text || composer.tags) {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ text: composer.text, tags: composer.tags, location: composer.location, visibility: composer.visibility }));
+      } else localStorage.removeItem(DRAFT_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+  }, [composer.open, composer.editing, composer.text, composer.tags, composer.location, composer.visibility]);
+
+  const addFiles = async (files: FileList | File[] | null, only?: 'video' | 'image') => {
+    const list = Array.from(files ?? []).filter((f) => (only === 'video' ? f.type.startsWith('video/') : only === 'image' ? f.type.startsWith('image/') : /^(image|video)\//.test(f.type)));
+    if (!list.length) return;
     setUploading(true);
     try {
-      const uploaded = await Promise.all(
-        Array.from(files).map((file) => uploadFile(file, meId, syncing)),
-      );
-      setComposer({
-        media: [
-          ...composerMediaRef.current,
-          ...uploaded.map((item) => ({
-            label: item.label,
-            ratio: item.ratio,
-            url: item.url,
-            video: item.video,
-          })),
-        ],
-      });
-      if (uploaded.some((item) => item.local) && syncing) showToast(t.uploadErr);
+      const uploaded = await Promise.all(list.map((file) => uploadFile(file, meId, syncing)));
+      const media = [...mediaRef.current, ...uploaded.map((u) => ({ label: u.label, ratio: u.ratio, url: u.url, video: u.video }))];
+      setComposer({ media, kind: kindOf(media), error: '' });
+      if (uploaded.some((u) => u.local) && syncing) showToast(t.uploadErr);
     } finally {
       setUploading(false);
     }
@@ -64,771 +90,220 @@ function Composer() {
 
   if (!composer.open) return null;
 
-  const field = {
-    width: '100%',
-    padding: '13px 14px',
-    borderRadius: 12,
-    background: 'var(--surface)',
-    border: '1px solid var(--line)',
-    fontSize: 14.5,
-    outline: 'none',
-  } as const;
-
-  const kinds: { key: PostKind; icon: string; label: string }[] = [
-    { key: 'text', icon: 'notes', label: t.text },
-    { key: 'photo', icon: 'image', label: t.photo },
-    { key: 'video', icon: 'movie', label: t.video },
-  ];
-
+  const removeAt = (i: number) => {
+    const media = composer.media.filter((_, j) => j !== i);
+    setComposer({ media, kind: kindOf(media) });
+  };
+  const usedTags = composer.tags.toLowerCase().split(/[,\s]+/).filter(Boolean).map((x) => (x[0] === '#' ? x : `#${x}`));
+  const suggestions = trends.map((x) => x.tag).filter((tag) => !usedTags.includes(tag.toLowerCase())).slice(0, 5);
   const visibilities: { key: Visibility; icon: string; label: string }[] = [
     { key: 'public', icon: 'public', label: t.public },
     { key: 'followers', icon: 'group', label: t.followersOnly },
     { key: 'private', icon: 'lock', label: t.private },
   ];
+  const empty = !composer.text.trim() && !composer.media.length;
 
   return (
-    <div style={{ ...backdrop, zIndex: 70, background: 'oklch(0.1 0 0 / 0.55)', backdropFilter: 'blur(3px)' }}>
-      <div
-        ref={panel}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t.create}
-        tabIndex={-1}
-        style={{
-          ...sheetShell,
-          maxWidth: 560,
-          maxHeight: '92dvh',
-          overflowY: 'auto',
-          animation: 'fmIn .28s ease both',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            padding: '14px 16px',
-            borderBottom: '1px solid var(--line)',
-            position: 'sticky',
-            top: 0,
-            background: 'var(--bg)',
-            zIndex: 2,
-          }}
-        >
-          <button
-            className="hov-surface"
-            onClick={closeComposer}
-            style={{ width: 36, height: 36, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'var(--ink2)' }}
-          >
-            <Icon name="close" size={22} />
-          </button>
-          <h2
-            style={{
-              margin: 0,
-              flex: 1,
-              fontFamily: 'var(--font-display)',
-              fontSize: 17,
-              fontWeight: 700,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            {t.create}
-          </h2>
-          <button
-            onClick={() => publish(() => navigate('/following'))}
-            style={{
-              padding: '9px 18px',
-              borderRadius: 999,
-              background: 'var(--accent)',
-              color: 'var(--accentInk)',
-              fontSize: 14,
-              fontWeight: 600,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            {composer.busy && (
-              <span
-                style={{
-                  width: 13,
-                  height: 13,
-                  borderRadius: '50%',
-                  border: '2px solid color-mix(in oklab, var(--accentInk) 35%, transparent)',
-                  borderTopColor: 'var(--accentInk)',
-                  animation: 'fmSpin .7s linear infinite',
-                  display: 'block',
-                }}
-              />
-            )}
-            {composer.editing ? t.save : t.publish}
-          </button>
-        </div>
-
-        <div style={{ padding: 16 }}>
-          <div style={{ display: 'flex', gap: 7, marginBottom: 14 }}>
-            {kinds.map((kind) => {
-              const active = composer.kind === kind.key;
-              return (
-                <button
-                  key={kind.key}
-                  onClick={() => setComposer({ kind: kind.key, media: kind.key === 'text' ? [] : composer.media })}
-                  style={{
-                    flex: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 7,
-                    padding: 11,
-                    borderRadius: 12,
-                    background: active ? 'var(--surface2)' : 'transparent',
-                    color: active ? 'var(--ink)' : 'var(--ink3)',
-                    border: `1px solid ${active ? 'var(--line)' : 'transparent'}`,
-                    fontSize: 13.5,
-                    fontWeight: 500,
-                  }}
-                >
-                  <Icon name={kind.icon} size={19} />
-                  {kind.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <textarea
-            className="field"
-            value={composer.text}
-            onChange={(e) => setComposer({ text: e.target.value, error: '' })}
-            placeholder={t.captionPh}
-            style={{
-              width: '100%',
-              minHeight: 118,
-              resize: 'none',
-              padding: 14,
-              borderRadius: 14,
-              background: 'var(--surface)',
-              border: '1px solid var(--line)',
-              fontSize: 16,
-              lineHeight: 1.55,
-              outline: 'none',
-            }}
-          />
-
-          {composer.kind !== 'text' && (
-            <div style={{ display: 'flex', gap: 9, overflowX: 'auto', marginTop: 12, paddingBottom: 4 }}>
-              {composer.media.map((item, i) => (
-                <div
-                  key={i}
-                  style={{
-                    position: 'relative',
-                    flex: '0 0 116px',
-                    aspectRatio: item.ratio,
-                    borderRadius: 13,
-                    overflow: 'hidden',
-                    background: 'var(--surface2)',
-                    border: '1px solid var(--line)',
-                  }}
-                >
-                  {item.url ? (
-                    item.video ? (
-                      <video
-                        src={item.url}
-                        muted
-                        playsInline
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      />
-                    ) : (
-                      <img
-                        src={item.url}
-                        alt={item.label}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      />
-                    )
-                  ) : (
-                    <span
-                      style={{
-                        position: 'absolute',
-                        inset: 0,
-                        display: 'grid',
-                        placeItems: 'center',
-                        padding: 9,
-                        fontFamily: 'ui-monospace,monospace',
-                        fontSize: 9.5,
-                        lineHeight: 1.35,
-                        letterSpacing: '0.04em',
-                        textTransform: 'uppercase',
-                        color: 'var(--ink3)',
-                        textAlign: 'center',
-                      }}
-                    >
-                      {item.label}
-                    </span>
-                  )}
-                  <button
-                    onClick={() => setComposer({ media: composer.media.filter((_, j) => j !== i) })}
-                    style={{
-                      position: 'absolute',
-                      right: 5,
-                      top: 5,
-                      width: 24,
-                      height: 24,
-                      borderRadius: '50%',
-                      background: 'oklch(0.15 0 0 / 0.6)',
-                      color: 'oklch(0.99 0 0)',
-                      display: 'grid',
-                      placeItems: 'center',
-                    }}
-                  >
-                    <Icon name="close" size={15} />
-                  </button>
-                </div>
-              ))}
-              <button
-                onClick={() => filePicker.current?.click()}
-                disabled={uploading}
-                style={{
-                  flex: '0 0 116px',
-                  aspectRatio: '4/5',
-                  borderRadius: 13,
-                  border: '1px dashed var(--line)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                  color: 'var(--ink3)',
-                }}
-              >
-                <Icon name={uploading ? 'progress_activity' : 'add_photo_alternate'} size={24} />
-                <span style={{ fontSize: 11.5 }}>{uploading ? t.uploading : t.addMedia}</span>
-              </button>
-              <input
-                ref={filePicker}
-                type="file"
-                accept={composer.kind === 'video' ? 'video/*' : 'image/*'}
-                multiple={composer.kind !== 'video'}
-                onChange={(e) => {
-                  void onFiles(e.target.files);
-                  e.target.value = '';
-                }}
-                style={{ display: 'none' }}
-              />
-            </div>
-          )}
-
-          <input
-            className="field"
-            value={composer.tags}
-            onChange={(e) => setComposer({ tags: e.target.value })}
-            placeholder={t.hashtags}
-            style={{ ...field, marginTop: 12 }}
-          />
-          <input
-            className="field"
-            value={composer.location}
-            onChange={(e) => setComposer({ location: e.target.value })}
-            placeholder={t.locPh}
-            style={{ ...field, marginTop: 9 }}
-          />
-
-          <p
-            style={{
-              margin: '18px 0 9px',
-              fontSize: 12.5,
-              fontWeight: 600,
-              letterSpacing: '0.03em',
-              textTransform: 'uppercase',
-              color: 'var(--ink3)',
-            }}
-          >
-            {t.visibility}
-          </p>
-          <div style={{ display: 'flex', gap: 7 }}>
-            {visibilities.map((option) => {
-              const active = composer.visibility === option.key;
-              return (
-                <button
-                  key={option.key}
-                  onClick={() => setComposer({ visibility: option.key })}
-                  style={{
-                    flex: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 7,
-                    padding: 11,
-                    borderRadius: 999,
-                    background: active ? 'var(--accent)' : 'transparent',
-                    color: active ? 'var(--accentInk)' : 'var(--ink3)',
-                    border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
-                    fontSize: 13,
-                    fontWeight: 500,
-                  }}
-                >
-                  <Icon name={option.icon} size={17} />
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {!!composer.error && (
-            <div
-              style={{
-                marginTop: 14,
-                padding: '12px 14px',
-                borderRadius: 12,
-                background: 'color-mix(in oklab, var(--like) 14%, transparent)',
-                color: 'var(--like)',
-                fontSize: 13.5,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 9,
-              }}
-            >
-              <Icon name="error" size={19} />
-              {composer.error}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StoryViewer() {
-  const { data, t, lang, userById } = useApp();
-  const { story, setStory, closeStory } = useOverlays();
-
-  useEffect(() => {
-    if (!story) return;
-    const timer = window.setInterval(() => {
-      setStory((() => {
-        const group = data.stories[story.groupIndex];
-        if (!group) return null;
-        const progress = story.progress + 0.02;
-        if (progress < 1) return { ...story, progress };
-        if (story.itemIndex + 1 < group.items.length)
-          return { groupIndex: story.groupIndex, itemIndex: story.itemIndex + 1, progress: 0 };
-        if (story.groupIndex + 1 < data.stories.length)
-          return { groupIndex: story.groupIndex + 1, itemIndex: 0, progress: 0 };
-        return null;
-      })());
-    }, 100);
-    return () => window.clearInterval(timer);
-  }, [story, data.stories, setStory]);
-
-  if (!story) return null;
-  const group = data.stories[story.groupIndex];
-  if (!group) return null;
-  const author = userById(group.userId);
-  const item = group.items[story.itemIndex] ?? group.items[0];
-
-  const next = () => {
-    if (story.itemIndex + 1 < group.items.length)
-      setStory({ groupIndex: story.groupIndex, itemIndex: story.itemIndex + 1, progress: 0 });
-    else if (story.groupIndex + 1 < data.stories.length)
-      setStory({ groupIndex: story.groupIndex + 1, itemIndex: 0, progress: 0 });
-    else closeStory();
-  };
-
-  const previous = () => {
-    if (story.itemIndex > 0)
-      setStory({ groupIndex: story.groupIndex, itemIndex: story.itemIndex - 1, progress: 0 });
-    else if (story.groupIndex > 0) setStory({ groupIndex: story.groupIndex - 1, itemIndex: 0, progress: 0 });
-    else setStory({ ...story, progress: 0 });
-  };
-
-  const hoursLeft = Math.max(1, 24 - Math.floor((Date.now() - item.createdAt) / 3600000));
-
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 80,
-        background: 'oklch(0.1 0 0)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
+    <Sheet
+      onClose={closeComposer}
+      label={t.create}
+      title={composer.editing ? t.editPost : t.newPost}
+      height="min(94dvh, 860px)"
+      z={70}
+      right={
+        <button className="btn btn-primary btn-sm" onClick={() => publish(() => navigate('/following'))} disabled={composer.busy || empty}>
+          {composer.busy && <span className="spinner" />}
+          {composer.editing ? t.save : t.publish}
+        </button>
+      }
     >
       <div
-        style={{
-          position: 'relative',
-          width: '100%',
-          height: '100%',
-          maxWidth: 480,
-          background: mediaTone(author.hue),
-          overflow: 'hidden',
-        }}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); void addFiles(e.dataTransfer.files); }}
+        style={{ padding: 16, outline: dragging ? '2px dashed var(--accent)' : 'none', outlineOffset: -8, borderRadius: 24 }}
       >
-        <div style={{ position: 'absolute', left: 10, right: 10, top: 10, display: 'flex', gap: 4, zIndex: 3 }}>
-          {group.items.map((_, i) => (
-            <span
-              key={i}
-              style={{
-                flex: 1,
-                height: 2.5,
-                borderRadius: 2,
-                background: 'oklch(0.99 0 0 / 0.28)',
-                overflow: 'hidden',
-                display: 'block',
-              }}
-            >
-              <span
-                style={{
-                  display: 'block',
-                  height: '100%',
-                  width:
-                    i < story.itemIndex
-                      ? '100%'
-                      : i === story.itemIndex
-                        ? `${Math.round(story.progress * 100)}%`
-                        : '0%',
-                  background: 'oklch(0.99 0 0 / 0.95)',
-                }}
-              />
-            </span>
-          ))}
-        </div>
-        <div
-          style={{
-            position: 'absolute',
-            left: 14,
-            right: 14,
-            top: 26,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 11,
-            zIndex: 3,
-          }}
-        >
-          <span
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: '50%',
-              display: 'grid',
-              placeItems: 'center',
-              fontWeight: 600,
-              fontSize: 13,
-              color: `oklch(0.16 0.03 ${author.hue})`,
-              background: `oklch(0.82 0.10 ${author.hue})`,
-              border: '1.5px solid oklch(0.99 0 0 / 0.7)',
-            }}
-          >
-            {toInitials(author.name)}
-          </span>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <Avatar hue={me.hue} initials={toInitials(me.name)} size={44} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: 'oklch(0.99 0 0)' }}>{author.name}</div>
-            <div style={{ fontSize: 11.5, color: 'oklch(0.99 0 0 / 0.6)' }}>
-              {rel(item.createdAt, lang)} · {t.storyLeft} {hoursLeft} h
-            </div>
+            <textarea
+              autoFocus
+              value={composer.text}
+              maxLength={LIMIT}
+              onChange={(e) => { setComposer({ text: e.target.value, error: '' }); e.currentTarget.style.height = 'auto'; e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`; }}
+              placeholder={t.captionPh}
+              rows={3}
+              style={{ width: '100%', minHeight: 96, padding: '8px 0', background: 'none', border: 0, outline: 'none', resize: 'none', fontSize: 18, lineHeight: 1.5 }}
+            />
           </div>
-          <button
-            onClick={closeStory}
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: '50%',
-              background: 'oklch(0.15 0 0 / 0.35)',
-              color: 'oklch(0.99 0 0)',
-              display: 'grid',
-              placeItems: 'center',
-            }}
-          >
-            <Icon name="close" size={20} />
-          </button>
         </div>
-        <button onClick={previous} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '32%', zIndex: 2 }} />
-        <button onClick={next} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '68%', zIndex: 2 }} />
-        <span
-          style={{
-            position: 'absolute',
-            inset: 0,
-            display: 'grid',
-            placeItems: 'center',
-            padding: '0 40px',
-            textAlign: 'center',
-            fontFamily: 'ui-monospace,monospace',
-            fontSize: 11.5,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            color: `oklch(0.94 0.02 ${author.hue})`,
-          }}
-        >
-          {item.label}
-        </span>
+
+        {(composer.media.length > 0 || uploading) && (
+          <div className="hscroll" style={{ margin: '8px 0 4px 56px' }}>
+            {composer.media.map((item, i) => (
+              <div key={i} style={{ position: 'relative', flex: '0 0 124px', aspectRatio: '4 / 5', borderRadius: 18, overflow: 'hidden', background: 'var(--surface2)', border: '1px solid var(--line)' }}>
+                {item.url ? (item.video ? <video src={item.url} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <img src={item.url} alt={item.label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />) : <span className="media-art" style={{ position: 'absolute', inset: 0 }} />}
+                {item.video && <span className="tile__kind" style={{ left: 8, right: 'auto' }}><Icon name="play_arrow" size={14} fill={1} /></span>}
+                <button onClick={() => removeAt(i)} aria-label={t.del} className="icon-btn icon-btn--glass" style={{ position: 'absolute', right: 6, top: 6, width: 28, height: 28 }}>
+                  <Icon name="close" size={15} />
+                </button>
+              </div>
+            ))}
+            {uploading && <div className="skeleton" style={{ flex: '0 0 124px', aspectRatio: '4 / 5', borderRadius: 18 }} />}
+          </div>
+        )}
+
+        {suggestions.length > 0 && (
+          <div className="hscroll" style={{ margin: '10px 0 0 56px' }}>
+            {suggestions.map((tag) => (
+              <button key={tag} className="chip" onClick={() => setComposer({ tags: `${composer.tags.trim()} ${tag}`.trim() })}>
+                {tag}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <input className="field" value={composer.tags} onChange={(e) => setComposer({ tags: e.target.value })} placeholder={t.hashtags} style={{ marginTop: 14, minHeight: 48, padding: '0 16px' }} />
+        {(showLocation || composer.location) && (
+          <input className="field" value={composer.location} onChange={(e) => setComposer({ location: e.target.value })} placeholder={t.locPh} style={{ marginTop: 10, minHeight: 48, padding: '0 16px' }} />
+        )}
+
+        <p className="eyebrow" style={{ margin: '20px 0 8px' }}>{t.visibility}</p>
+        <Segmented options={visibilities} value={composer.visibility} onChange={(visibility) => setComposer({ visibility })} label={t.visibility} />
+
+        {!!composer.error && (
+          <div role="alert" style={{ marginTop: 14, padding: '12px 14px', borderRadius: 14, background: 'color-mix(in srgb, var(--danger) 14%, transparent)', color: 'var(--danger)', fontSize: 13.5, display: 'flex', gap: 9, alignItems: 'center' }}>
+            <Icon name="error" size={19} />
+            {composer.error}
+          </div>
+        )}
       </div>
-    </div>
+
+      <div style={{ position: 'sticky', bottom: 0, display: 'flex', alignItems: 'center', gap: 4, padding: '10px 12px', borderTop: '1px solid var(--line)', background: 'color-mix(in srgb, var(--bg-elev) 92%, transparent)', backdropFilter: 'blur(16px)' }}>
+        <button className="icon-btn" onClick={() => filePicker.current?.click()} disabled={uploading} aria-label={t.addMedia} style={{ color: 'var(--accent-fg)' }}>
+          <Icon name={uploading ? 'progress_activity' : 'add_photo_alternate'} size={24} />
+        </button>
+        <button className="icon-btn" onClick={() => setShowLocation((v) => !v)} aria-label={t.locPh} style={{ color: showLocation || composer.location ? 'var(--accent-fg)' : undefined }}>
+          <Icon name="location_on" size={24} />
+        </button>
+        <button className="icon-btn" onClick={() => setComposer({ text: `${composer.text}${composer.text && !composer.text.endsWith(' ') ? ' ' : ''}#` })} aria-label="#">
+          <Icon name="tag" size={24} />
+        </button>
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: 12.5, color: 'var(--ink3)', fontWeight: 600 }}>{composer.text.length > LIMIT * 0.8 ? LIMIT - composer.text.length : ''}</span>
+        <CountRing value={composer.text.length} />
+        <input ref={filePicker} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => { void addFiles(e.target.files); e.target.value = ''; }} />
+      </div>
+    </Sheet>
   );
 }
 
 function ShareSheet() {
-  const { data, t, userById, sharePost, showToast } = useApp();
+  const { data, t, userById, sharePost, showToast, user } = useApp();
   const { sharePostId, closeShare } = useOverlays();
-  const panel = useDialog<HTMLDivElement>(closeShare);
+  const [sent, setSent] = useState<Record<string, boolean>>({});
   if (!sharePostId) return null;
+  const url = postUrl(sharePostId);
+  const post = data.posts.find((p) => p.id === sharePostId);
 
   const targets = [
-    ...data.conversations.map((c) => {
+    ...data.conversations.filter((c) => !user.blocked[c.userId]).map((c) => {
       const other = userById(c.userId);
-      return { id: c.id, kind: 'dm' as const, name: other.name, hue: other.hue, initials: toInitials(other.name) };
+      return { id: c.id, kind: 'dm' as const, name: other.name, hue: other.hue, radius: '50%' };
     }),
-    ...data.groups.map((g) => ({
-      id: g.id,
-      kind: 'group' as const,
-      name: g.name,
-      hue: g.hue,
-      initials: toInitials(g.name),
-    })),
+    ...data.groups.map((g) => ({ id: g.id, kind: 'group' as const, name: g.name, hue: g.hue, radius: '18px' })),
   ];
 
+  const copy = async () => {
+    showToast((await copyText(url)) ? t.copied : t.copyFailed);
+    closeShare();
+  };
+  const native = async () => {
+    const result = await shareLink({ title: 'Facemash', text: post?.text.slice(0, 120), url });
+    if (result === 'copied') showToast(t.copied);
+    if (result !== 'cancelled') closeShare();
+  };
+
   return (
-    <div onClick={closeShare} style={{ ...backdrop, zIndex: 75 }}>
-      <div
-        ref={panel}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t.sendTo}
-        tabIndex={-1}
-        onClick={(e) => e.stopPropagation()}
-        style={{ ...sheetShell, padding: '18px 0 22px', animation: 'fmIn .26s ease both' }}
-      >
-        <h2
-          style={{
-            margin: '0 0 6px',
-            padding: '0 18px',
-            fontFamily: 'var(--font-display)',
-            fontSize: 17,
-            fontWeight: 700,
-            letterSpacing: '-0.02em',
-          }}
-        >
-          {t.sendTo}
-        </h2>
-        <div style={{ display: 'flex', gap: 14, overflowX: 'auto', padding: '14px 18px 18px' }}>
-          {targets.map((target) => (
-            <button
-              key={target.id}
-              onClick={() => {
-                sharePost(sharePostId, { kind: target.kind, id: target.id });
-                closeShare();
-              }}
-              style={{
-                flex: '0 0 auto',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 8,
-                width: 72,
-              }}
-            >
-              <Avatar hue={target.hue} initials={target.initials} size={56} fontSize={16} />
-              <span
-                style={{
-                  fontSize: 11.5,
-                  color: 'var(--ink2)',
-                  textAlign: 'center',
-                  lineHeight: 1.3,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  maxWidth: 72,
-                }}
-              >
-                {target.name}
-              </span>
-            </button>
-          ))}
-        </div>
-        <button
-          className="hov-surface"
-          onClick={() => {
-            closeShare();
-            showToast(t.copied);
-          }}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 13,
-            width: '100%',
-            padding: '15px 18px',
-            textAlign: 'left',
-            borderTop: '1px solid var(--line)',
-          }}
-        >
-          <Icon name="link" size={21} color="var(--ink2)" />
-          <span style={{ fontSize: 15 }}>{t.copyLink}</span>
+    <Sheet onClose={closeShare} label={t.sendTo} title={t.sendTo} z={75}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px 6px', padding: '18px 14px 10px' }}>
+        {targets.length === 0 && <p style={{ gridColumn: '1 / -1', margin: 0, color: 'var(--ink3)', textAlign: 'center', fontSize: 14 }}>{t.noChatsYet}</p>}
+        {targets.map((target) => (
+          <button key={target.id} onClick={() => { haptic('light'); sharePost(sharePostId, { kind: target.kind, id: target.id }); setSent((s) => ({ ...s, [target.id]: true })); }} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 7, minWidth: 0 }}>
+            <span style={{ position: 'relative' }}>
+              <Avatar hue={target.hue} initials={toInitials(target.name)} size={58} radius={target.radius} />
+              {sent[target.id] && (
+                <span style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', borderRadius: target.radius, background: 'rgb(0 0 0 / 50%)', color: '#fff' }}>
+                  <Icon name="check" size={26} />
+                </span>
+              )}
+            </span>
+            <span style={{ maxWidth: '100%', fontSize: 12, color: 'var(--ink2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{target.name.split(' ')[0]}</span>
+          </button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 10, padding: '10px 16px 18px' }}>
+        <button className="btn btn-soft" style={{ flex: 1 }} onClick={() => void copy()}>
+          <Icon name="link" size={18} />
+          {t.copyLink}
+        </button>
+        <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => void native()}>
+          <Icon name="share_network" size={18} />
+          {t.shareVia}
         </button>
       </div>
-    </div>
+    </Sheet>
   );
 }
 
 function ActionSheet() {
   const navigate = useNavigate();
-  const { t, deletePost, blockUser, editPost, showToast, togglePin, toggleArchive, markUnread, toggleMute, user } =
-    useApp();
-  const { sheet, closeSheet } = useOverlays();
-  const panel = useDialog<HTMLDivElement>(closeSheet);
+  const { t, deletePost, blockUser, editPost, showToast, togglePin, toggleArchive, markUnread, toggleMute, user, reportPost, reportUser } = useApp();
+  const { sheet, closeSheet, openShare } = useOverlays();
   if (!sheet) return null;
 
   const items: { icon: string; label: string; danger?: boolean; run: () => void }[] = [];
+  const copy = (url: string) => async () => {
+    closeSheet();
+    showToast((await copyText(url)) ? t.copied : t.copyFailed);
+  };
 
   if (sheet.kind === 'post') {
-    items.push({
-      icon: 'link',
-      label: t.copyLink,
-      run: () => {
-        closeSheet();
-        showToast(t.copied);
-      },
-    });
+    items.push({ icon: 'send', label: t.share, run: () => { closeSheet(); openShare(sheet.id); } });
+    items.push({ icon: 'link', label: t.copyLink, run: copy(postUrl(sheet.id)) });
     if (sheet.mine) {
-      items.push({
-        icon: 'edit',
-        label: t.edit,
-        run: () => {
-          editPost(sheet.id);
-          closeSheet();
-        },
-      });
-      items.push({
-        icon: 'delete',
-        label: t.del,
-        danger: true,
-        run: () => {
-          deletePost(sheet.id);
-          closeSheet();
-        },
-      });
+      items.push({ icon: 'edit', label: t.edit, run: () => { editPost(sheet.id); closeSheet(); } });
+      items.push({ icon: 'delete', label: t.del, danger: true, run: () => { deletePost(sheet.id); closeSheet(); if (location.pathname.startsWith('/post/')) navigate('/'); } });
     } else {
-      items.push({
-        icon: 'flag',
-        label: t.report,
-        run: () => {
-          closeSheet();
-          showToast(t.reported);
-        },
-      });
-      items.push({
-        icon: 'block',
-        label: t.block,
-        danger: true,
-        run: () => {
-          blockUser(sheet.author);
-          closeSheet();
-        },
-      });
+      items.push({ icon: 'flag', label: t.report, run: () => { reportPost(sheet.id); closeSheet(); } });
+      items.push({ icon: 'block', label: t.block, danger: true, run: () => { blockUser(sheet.author); closeSheet(); } });
     }
   } else if (sheet.kind === 'user') {
-    items.push({
-      icon: 'flag',
-      label: t.report,
-      run: () => {
-        closeSheet();
-        showToast(t.reported);
-      },
-    });
-    items.push({
-      icon: 'block',
-      label: t.block,
-      danger: true,
-      run: () => {
-        blockUser(sheet.id);
-        closeSheet();
-        navigate('/');
-      },
-    });
+    items.push({ icon: 'link', label: t.copyProfileLink, run: copy(profileUrl(sheet.id)) });
+    items.push({ icon: 'flag', label: t.report, run: () => { reportUser(sheet.id); closeSheet(); } });
+    items.push({ icon: 'block', label: t.block, danger: true, run: () => { blockUser(sheet.id); closeSheet(); navigate('/'); } });
   } else {
-    items.push({
-      icon: sheet.pinned ? 'keep_off' : 'keep',
-      label: sheet.pinned ? t.unpin : t.pin,
-      run: () => {
-        togglePin(sheet.id);
-        closeSheet();
-      },
-    });
-    items.push({
-      icon: sheet.archived ? 'unarchive' : 'archive',
-      label: sheet.archived ? t.unarchive : t.archive,
-      run: () => {
-        toggleArchive(sheet.id);
-        closeSheet();
-      },
-    });
-    items.push({
-      icon: 'mark_chat_unread',
-      label: t.markUnread,
-      run: () => {
-        markUnread(sheet.id);
-        closeSheet();
-      },
-    });
+    items.push({ icon: sheet.pinned ? 'keep_off' : 'keep', label: sheet.pinned ? t.unpin : t.pin, run: () => { togglePin(sheet.id); closeSheet(); } });
+    items.push({ icon: sheet.archived ? 'unarchive' : 'archive', label: sheet.archived ? t.unarchive : t.archive, run: () => { toggleArchive(sheet.id); closeSheet(); } });
+    items.push({ icon: 'mark_chat_unread', label: t.markUnread, run: () => { markUnread(sheet.id); closeSheet(); } });
     const muted = !!user.muted[sheet.id];
-    items.push({
-      icon: muted ? 'notifications_active' : 'notifications_off',
-      label: muted ? t.unmute : t.mute,
-      run: () => {
-        toggleMute(sheet.id);
-        closeSheet();
-      },
-    });
+    items.push({ icon: muted ? 'notifications_active' : 'notifications_off', label: muted ? t.unmute : t.mute, run: () => { toggleMute(sheet.id); closeSheet(); } });
   }
 
   return (
-    <div onClick={closeSheet} style={{ ...backdrop, zIndex: 75 }}>
-      <div
-        ref={panel}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t.settings}
-        tabIndex={-1}
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          ...sheetShell,
-          padding: '10px 0 calc(14px + env(safe-area-inset-bottom))',
-          animation: 'fmIn .24s ease both',
-        }}
-      >
+    <Sheet onClose={closeSheet} label={t.settings} z={75}>
+      <div style={{ padding: '6px 0 10px' }}>
         {items.map((item) => (
-          <button
-            key={item.label}
-            className="hov-surface"
-            onClick={item.run}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 14,
-              width: '100%',
-              padding: '15px 20px',
-              textAlign: 'left',
-              color: item.danger ? 'var(--like)' : 'var(--ink)',
-            }}
-          >
-            <Icon name={item.icon} size={21} />
-            <span style={{ fontSize: 15.5 }}>{item.label}</span>
+          <button key={item.label} className={`menu-item${item.danger ? ' menu-item--danger' : ''}`} onClick={item.run}>
+            <Icon name={item.icon} size={22} />
+            {item.label}
           </button>
         ))}
-        <button
-          onClick={closeSheet}
-          style={{
-            display: 'block',
-            width: '100%',
-            padding: '15px 20px',
-            textAlign: 'center',
-            color: 'var(--ink3)',
-            fontSize: 15,
-            borderTop: '1px solid var(--line)',
-            marginTop: 6,
-          }}
-        >
+        <button className="menu-item" onClick={closeSheet} style={{ color: 'var(--ink3)', justifyContent: 'center', borderTop: '1px solid var(--line)', marginTop: 6 }}>
           {t.cancel}
         </button>
       </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -836,28 +311,10 @@ function Toast() {
   const { toast } = useApp();
   if (!toast) return null;
   return (
-    <div
-      style={{
-        position: 'fixed',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        bottom: 96,
-        zIndex: 90,
-        padding: '12px 18px',
-        borderRadius: 999,
-        background: 'var(--surface2)',
-        color: 'var(--ink)',
-        fontSize: 14,
-        fontWeight: 500,
-        boxShadow: 'var(--shadow)',
-        animation: 'fmToast .25s ease both',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 9,
-        maxWidth: '88vw',
-      }}
-    >
-      <Icon name="check_circle" size={19} color="var(--accent)" />
+    <div className="toast" role="status" aria-live="polite" key={toast}>
+      <span className="toast__icon">
+        <Icon name="check" size={15} />
+      </span>
       {toast}
     </div>
   );
@@ -867,21 +324,7 @@ function OfflineBar() {
   const { offline, t } = useApp();
   if (!offline) return null;
   return (
-    <div
-      style={{
-        position: 'fixed',
-        left: 0,
-        right: 0,
-        top: 0,
-        zIndex: 95,
-        padding: '9px 16px',
-        background: 'var(--like)',
-        color: 'oklch(0.99 0.01 20)',
-        fontSize: 13,
-        fontWeight: 500,
-        textAlign: 'center',
-      }}
-    >
+    <div role="alert" style={{ position: 'fixed', left: 0, right: 0, top: 0, zIndex: 95, padding: 'calc(9px + var(--safe-top)) 16px 9px', background: 'var(--danger)', color: '#fff', fontSize: 13, fontWeight: 600, textAlign: 'center' }}>
       {t.offline}
     </div>
   );
@@ -892,9 +335,12 @@ export function Overlays() {
     <>
       <InstallPrompt />
       <Composer />
+      <CommentsSheet />
       <StoryViewer />
+      <StoryComposer />
       <ShareSheet />
       <ActionSheet />
+      <Palette />
       <Toast />
       <OfflineBar />
     </>

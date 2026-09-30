@@ -6,7 +6,10 @@ import { MobileFrame } from './screens/MobileFrame';
 import { AppProvider } from './store';
 import { OverlayProvider } from './overlays';
 import { ViewportProvider } from './viewport';
+import { initPrefs } from './lib/prefs';
 import './index.css';
+
+initPrefs();
 
 // The phone-frame page runs the app in its own memory router, so it replaces the
 // browser router rather than nesting inside it.

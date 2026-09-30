@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Avatar, Icon } from '../components/Icon';
+import { Sheet, Segmented } from '../components/ui';
+import { StoryRail } from '../components/Stories';
 import { Thread } from '../components/Thread';
 import { useApp } from '../store';
 import { useOverlays } from '../overlays';
@@ -23,131 +25,29 @@ function ContactPicker({ onClose }: { onClose: () => void }) {
   const { data, t, user, meId, openConversationWith } = useApp();
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
-  const people = data.users.filter(
-    (u) => u.id !== meId && !user.blocked[u.id] && (!q || u.name.toLowerCase().includes(q) || u.username.includes(q)),
-  );
+  const people = data.users.filter((u) => u.id !== meId && !user.blocked[u.id] && (!q || u.name.toLowerCase().includes(q) || u.username.includes(q)));
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 79,
-        display: 'flex',
-        alignItems: 'flex-end',
-        justifyContent: 'center',
-        background: 'oklch(0.1 0 0 / 0.5)',
-      }}
-    >
-      <div
-        style={{
-          width: '100%',
-          maxWidth: 520,
-          maxHeight: '84dvh',
-          display: 'flex',
-          flexDirection: 'column',
-          background: 'var(--bg)',
-          borderRadius: '22px 22px 0 0',
-          borderTop: '1px solid var(--line)',
-          boxShadow: 'var(--shadow)',
-          animation: 'fmIn .24s ease both',
-        }}
-      >
-        <div style={{ flex: '0 0 auto', padding: '16px 18px 12px', borderBottom: '1px solid var(--line)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            <h2
-              style={{
-                margin: 0,
-                flex: 1,
-                fontFamily: 'var(--font-display)',
-                fontSize: 17,
-                fontWeight: 700,
-                letterSpacing: '-0.02em',
-              }}
-            >
-              {t.newChat}
-            </h2>
-            <button
-              className="hov-surface"
-              onClick={onClose}
-              style={{ width: 38, height: 38, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'var(--ink3)' }}
-            >
-              <Icon name="close" size={21} />
-            </button>
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '10px 13px',
-              borderRadius: 999,
-              background: 'var(--surface)',
-              border: '1px solid var(--line)',
-            }}
-          >
-            <Icon name="search" size={19} color="var(--ink3)" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t.searchPeople}
-              style={{ flex: 1, minWidth: 0, background: 'none', border: 0, outline: 'none', fontSize: 14.5 }}
-            />
-          </div>
-        </div>
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            overflowY: 'auto',
-            padding: '6px 0 calc(14px + env(safe-area-inset-bottom))',
-          }}
-        >
-          {people.length === 0 && (
-            <p style={{ margin: 0, padding: '46px 20px', textAlign: 'center', color: 'var(--ink3)', fontSize: 14.5 }}>
-              {t.noResults}
-            </p>
-          )}
-          {people.map((u) => (
-            <button
-              key={u.id}
-              className="hov-surface"
-              onClick={() => {
-                const id = openConversationWith(u.id);
-                onClose();
-                navigate(`/messages/dm/${id}`);
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 13,
-                width: '100%',
-                padding: '11px 18px',
-                textAlign: 'left',
-              }}
-            >
-              <Avatar hue={u.hue} initials={toInitials(u.name)} size={48} fontSize={15} />
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: 15, fontWeight: 600 }}>{u.name}</span>
-                <span
-                  style={{
-                    display: 'block',
-                    marginTop: 2,
-                    fontSize: 13,
-                    color: 'var(--ink3)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {u.bio}
-                </span>
-              </span>
-            </button>
-          ))}
-        </div>
+    <Sheet onClose={onClose} label={t.newChat} title={t.newChat} height="min(84dvh, 700px)" z={79} bodyStyle={{ display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '12px 16px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 9, minHeight: 46, padding: '0 14px', borderRadius: 999, background: 'var(--surface2)', border: '1px solid var(--line)' }}>
+          <Icon name="search" size={19} color="var(--ink3)" />
+          <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t.searchPeople} style={{ flex: 1, minWidth: 0, background: 'none', border: 0, outline: 'none', fontSize: 15 }} />
+        </label>
       </div>
-    </div>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: 14 }}>
+        {people.length === 0 && <p style={{ margin: 0, padding: '46px 20px', textAlign: 'center', color: 'var(--ink3)', fontSize: 14.5 }}>{t.noResults}</p>}
+        {people.map((u) => (
+          <button key={u.id} className="row-hover" onClick={() => { const id = openConversationWith(u.id); onClose(); navigate(`/messages/dm/${id}`); }} style={{ display: 'flex', alignItems: 'center', gap: 13, width: '100%', padding: '10px 18px', textAlign: 'left' }}>
+            <Avatar hue={u.hue} initials={toInitials(u.name)} size={48} />
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'block', fontSize: 15, fontWeight: 650 }}>{u.name}</span>
+              <span style={{ display: 'block', marginTop: 2, fontSize: 13, color: 'var(--ink3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.bio || `@${u.username}`}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </Sheet>
   );
 }
 
@@ -155,94 +55,16 @@ function NewGroupSheet({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
   const { t, createGroup } = useApp();
   const [form, setForm] = useState({ name: '', description: '' });
-  const field = {
-    padding: '14px 15px',
-    borderRadius: 13,
-    background: 'var(--surface)',
-    border: '1px solid var(--line)',
-    fontSize: 15,
-    outline: 'none',
-  } as const;
-
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 76,
-        display: 'flex',
-        alignItems: 'flex-end',
-        justifyContent: 'center',
-        background: 'oklch(0.1 0 0 / 0.55)',
-      }}
-    >
-      <div
-        style={{
-          width: '100%',
-          maxWidth: 520,
-          background: 'var(--bg)',
-          borderRadius: '22px 22px 0 0',
-          borderTop: '1px solid var(--line)',
-          padding: '16px 18px calc(20px + env(safe-area-inset-bottom))',
-          boxShadow: 'var(--shadow)',
-          animation: 'fmIn .26s ease both',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-          <h2
-            style={{
-              margin: 0,
-              flex: 1,
-              fontFamily: 'var(--font-display)',
-              fontSize: 17,
-              fontWeight: 700,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            {t.newGroup}
-          </h2>
-          <button onClick={onClose} style={{ color: 'var(--ink3)' }}>
-            <Icon name="close" size={22} />
-          </button>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <input
-            className="field"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder={t.groupName}
-            style={field}
-          />
-          <textarea
-            className="field"
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-            placeholder={t.desc}
-            style={{ ...field, minHeight: 74, resize: 'none', borderRadius: 14, lineHeight: 1.5 }}
-          />
-        </div>
-        <button
-          onClick={() => {
-            if (!form.name.trim()) return;
-            const id = createGroup(form.name, form.description);
-            onClose();
-            navigate(`/messages/group/${id}`);
-          }}
-          style={{
-            marginTop: 16,
-            width: '100%',
-            padding: 15,
-            borderRadius: 14,
-            background: 'var(--accent)',
-            color: 'var(--accentInk)',
-            fontWeight: 600,
-            fontSize: 15.5,
-          }}
-        >
+    <Sheet onClose={onClose} label={t.newGroup} title={t.newGroup} z={76}>
+      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <input autoFocus className="field" value={form.name} maxLength={50} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t.groupName} style={{ minHeight: 52, padding: '0 16px' }} />
+        <textarea className="field" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder={t.desc} style={{ minHeight: 84, padding: 14, resize: 'none', lineHeight: 1.5 }} />
+        <button className="btn btn-primary btn-lg btn-block" disabled={!form.name.trim()} onClick={() => { if (!form.name.trim()) return; const id = createGroup(form.name, form.description); onClose(); navigate(`/messages/group/${id}`); }}>
           {t.newGroup}
         </button>
       </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -250,7 +72,7 @@ export function Messages() {
   const params = useParams();
   const navigate = useNavigate();
   const { data, user, t, lang, userById, meId, markThreadRead } = useApp();
-  const { openStory, openSheet } = useOverlays();
+  const { openSheet } = useOverlays();
   const { wide, shellHeight } = useLayout();
 
   const threadKind = params.kind as ThreadKind | undefined;
@@ -300,17 +122,6 @@ export function Messages() {
     markThreadRead(kind, id);
     navigate(`/messages/${kind}/${id}`);
   };
-
-  const chipStyle = (active: boolean) =>
-    ({
-      flex: '0 0 auto',
-      padding: '9px 15px',
-      borderRadius: 999,
-      fontSize: 13.5,
-      fontWeight: 600,
-      background: active ? 'var(--surface2)' : 'transparent',
-      color: active ? 'var(--ink)' : 'var(--ink3)',
-    }) as const;
 
   const listVisible = !threadId || wide;
   const threadVisible = !!threadId || wide;
@@ -422,7 +233,7 @@ export function Messages() {
                 gap: 8,
                 padding: '10px 13px',
                 borderRadius: 999,
-                background: 'var(--surface)',
+                background: 'var(--surface2)',
                 border: '1px solid var(--line)',
               }}
             >
@@ -440,16 +251,8 @@ export function Messages() {
               )}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 6, padding: '0 2px 10px', overflowX: 'auto' }}>
-            <button onClick={() => setTab('chats')} style={chipStyle(tab === 'chats')}>
-              {t.chats}
-            </button>
-            <button onClick={() => setTab('groups')} style={chipStyle(tab === 'groups')}>
-              {t.groups}
-            </button>
-            <button onClick={() => setTab('channels')} style={chipStyle(tab === 'channels')}>
-              {t.channels}
-            </button>
+          <div style={{ padding: '0 4px 12px' }}>
+            <Segmented<Tab> value={tab} onChange={setTab} options={[{ key: 'chats', label: t.chats }, { key: 'groups', label: t.groups }, { key: 'channels', label: t.channels }]} />
           </div>
         </header>
 
@@ -479,68 +282,8 @@ export function Messages() {
 
           {tab === 'chats' && (
             <>
-              <div
-                className="chat-statuses"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  overflowX: 'auto',
-                  padding: '12px 16px',
-                  borderBottom: '1px solid var(--line)',
-                }}
-              >
-                <span
-                  style={{
-                    flex: '0 0 auto',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                    color: 'var(--ink3)',
-                  }}
-                >
-                  {t.statuses}
-                </span>
-                {data.stories.map((group, i) => {
-                  const author = userById(group.userId);
-                  return (
-                    <button
-                      key={group.userId}
-                      onClick={() => openStory(i)}
-                      style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 8 }}
-                    >
-                      <span
-                        style={{
-                          width: 46,
-                          height: 46,
-                          borderRadius: '50%',
-                          padding: 2,
-                          background: 'var(--accent)',
-                          display: 'grid',
-                          placeItems: 'center',
-                        }}
-                      >
-                        <span
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                            borderRadius: '50%',
-                            border: '2px solid var(--bg)',
-                            display: 'grid',
-                            placeItems: 'center',
-                            fontWeight: 600,
-                            fontSize: 12.5,
-                            color: `oklch(0.16 0.03 ${author.hue})`,
-                            background: `oklch(0.80 0.10 ${author.hue})`,
-                          }}
-                        >
-                          {toInitials(author.name)}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
+              <div className="chat-statuses" style={{ borderBottom: '1px solid var(--line)' }}>
+                <StoryRail compact />
               </div>
 
               {chats.map((convo) => {
@@ -611,20 +354,7 @@ export function Messages() {
                       </span>
                     </button>
                     {convo.unread > 0 && (
-                      <span
-                        style={{
-                          minWidth: 21,
-                          height: 21,
-                          padding: '0 6px',
-                          borderRadius: 11,
-                          background: 'var(--accent)',
-                          color: 'var(--accentInk)',
-                          fontSize: 11.5,
-                          fontWeight: 600,
-                          display: 'grid',
-                          placeItems: 'center',
-                        }}
-                      >
+                      <span className="badge">
                         {convo.unread}
                       </span>
                     )}
@@ -717,20 +447,7 @@ export function Messages() {
                     </span>
                   </button>
                   {group.unread > 0 && (
-                    <span
-                      style={{
-                        minWidth: 21,
-                        height: 21,
-                        padding: '0 6px',
-                        borderRadius: 11,
-                        background: 'var(--accent)',
-                        color: 'var(--accentInk)',
-                        fontSize: 11.5,
-                        fontWeight: 600,
-                        display: 'grid',
-                        placeItems: 'center',
-                      }}
-                    >
+                    <span className="badge">
                       {group.unread}
                     </span>
                   )}
@@ -833,11 +550,11 @@ export function Messages() {
               alignItems: 'center',
               justifyContent: 'center',
               gap: 14,
-              background: 'color-mix(in oklab, var(--bg) 93%, oklch(0.72 0.07 62))',
+              background: 'transparent',
               padding: 40,
             }}
           >
-            <Icon name="forum" size={46} color="var(--ink3)" />
+            <span className="empty__art"><Icon name="forum" size={38} /></span>
             <p
               style={{
                 margin: 0,

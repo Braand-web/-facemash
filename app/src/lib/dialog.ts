@@ -12,7 +12,7 @@ export function useDialog<T extends HTMLElement>(onClose: () => void) {
 
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
-    panel.current?.focus();
+    if (!panel.current?.contains(document.activeElement)) panel.current?.focus();
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {

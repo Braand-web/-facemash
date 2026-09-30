@@ -14,6 +14,29 @@ Two entry points:
 - `/` — the app: Pour toi feed, Abonnements, Explorer, Messages, profils, notifications.
 - `/mobile` — the same app running at true scale inside an iPhone 402 × 874 frame.
 
+## Design « Aurora »
+
+Un seul dégradé (violet → rose → ambre) porte la marque ; le reste est fait de surfaces
+calmes, de filets et de verre dépoli pour que les contenus restent au premier plan. Tout
+passe par des tokens dans `src/index.css` : clair/sombre, cinq couleurs d'accent
+(Paramètres → Apparence) et le dégradé se règlent au même endroit.
+
+Nouveautés côté produit, toutes compatibles avec le schéma Supabase existant :
+
+- **Reels immersifs** : double-tap pour aimer, commentaires en panneau sans quitter le flux,
+  lecture/pause, son, barre de progression, raccourcis clavier.
+- **Statuts (stories)** : création texte / photo / vidéo, anneaux vu / non vu, réponses et
+  réactions envoyées en message privé. Le contenu riche est encodé dans la colonne `label`
+  de `stories` (préfixe `fm1:`), aucune migration n'est nécessaire.
+- **Recherche** : palette `⌘K` ou `/`, recherches récentes, onglets Comptes / Hashtags /
+  Publications.
+- **Hashtags et @mentions cliquables**, vrai partage natif et copie de lien, signalement
+  réellement enregistré, déblocage depuis les Paramètres.
+- **Composer** : brouillon automatique, suggestions de hashtags, glisser-déposer, compression
+  des photos avant envoi.
+- **Notifications** groupées par période avec filtres.
+- Préférences d'appareil : couleur d'accent, lecture automatique, retour haptique.
+
 ## Modes
 
 Without Supabase credentials the app runs on seeded demo data held in `localStorage`,

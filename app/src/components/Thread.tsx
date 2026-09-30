@@ -147,7 +147,7 @@ function MessageBubble({
     setSwipe(0);
   };
 
-  const authorColor = `oklch(0.70 0.13 ${author.hue})`;
+  const authorColor = `oklch(0.72 0.15 ${author.hue})`;
   const radius = mine
     ? row.first
       ? '18px 6px 18px 18px'
@@ -185,8 +185,8 @@ function MessageBubble({
             fontWeight: 600,
             fontSize: 11,
             opacity: row.last ? 1 : 0,
-            color: `oklch(0.16 0.03 ${author.hue})`,
-            background: `oklch(0.78 0.10 ${author.hue})`,
+            color: '#fff',
+            background: `linear-gradient(140deg, oklch(0.74 0.16 ${author.hue}), oklch(0.54 0.2 ${author.hue + 52}))`,
           }}
         >
           {toInitials(author.name)}
@@ -194,6 +194,7 @@ function MessageBubble({
       )}
       <div
         className="message-bubble"
+        data-mine={mine}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -432,7 +433,7 @@ function MessageBubble({
                 size={14}
                 color={
                   message.status === 'read'
-                    ? 'oklch(0.32 0.10 250)'
+                    ? '#b6f5ff'
                     : 'color-mix(in oklab, var(--accentInk) 52%, transparent)'
                 }
                 style={{ opacity: 1 }}
@@ -685,8 +686,8 @@ function ForwardPicker({
                 placeItems: 'center',
                 fontWeight: 600,
                 fontSize: 14,
-                color: `oklch(0.16 0.03 ${target.hue})`,
-                background: `oklch(0.78 0.10 ${target.hue})`,
+                color: '#fff',
+                background: `linear-gradient(140deg, oklch(0.74 0.16 ${target.hue}), oklch(0.54 0.2 ${target.hue + 52}))`,
               }}
             >
               {target.initials}
@@ -1011,8 +1012,8 @@ function CallOverlay({
               fontFamily: 'var(--font-display)',
               fontWeight: 700,
               fontSize: 36,
-              color: `oklch(0.16 0.03 ${other.hue})`,
-              background: `oklch(0.80 0.10 ${other.hue})`,
+              color: '#fff',
+              background: `linear-gradient(140deg, oklch(0.74 0.16 ${other.hue}), oklch(0.54 0.2 ${other.hue + 52}))`,
             }}
           >
             {toInitials(other.name)}
@@ -1463,8 +1464,8 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
             placeItems: 'center',
             fontWeight: 600,
             fontSize: 14,
-            color: `oklch(0.16 0.03 ${header.hue})`,
-            background: `oklch(0.78 0.10 ${header.hue})`,
+            color: '#fff',
+            background: `linear-gradient(140deg, oklch(0.74 0.16 ${header.hue}), oklch(0.54 0.2 ${header.hue + 52}))`,
           }}
         >
           {header.initials}
@@ -1726,8 +1727,8 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
                     placeItems: 'center',
                     fontWeight: 600,
                     fontSize: 11.5,
-                    color: `oklch(0.16 0.03 ${memberUser.hue})`,
-                    background: `oklch(0.78 0.10 ${memberUser.hue})`,
+                    color: '#fff',
+                    background: `linear-gradient(140deg, oklch(0.74 0.16 ${memberUser.hue}), oklch(0.54 0.2 ${memberUser.hue + 52}))`,
                   }}
                 >
                   {toInitials(memberUser.name)}
