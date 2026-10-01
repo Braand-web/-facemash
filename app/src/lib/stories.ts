@@ -4,7 +4,7 @@ import type { StoryItem } from '../types';
 export type StoryKind = 'text' | 'photo' | 'video';
 
 /** Backgrounds for text stories, and the fallback fill behind uploaded media. */
-export const STORY_BGS = ['#ee4b2b', '#2f56e0', '#2f7d4f', '#8a3b6e', '#b9770e', '#1d1b18'];
+export const STORY_BGS = ['#2563eb', '#e5432a', '#2f7d4f', '#8a3b6e', '#b9770e', '#16181c'];
 
 interface Payload {
   kind: StoryKind;
