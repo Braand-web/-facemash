@@ -271,7 +271,7 @@ interface AvatarProps {
   style?: CSSProperties;
 }
 
-/** Generative avatar: a two-stop gradient off the account's hue, initials on top. */
+/** Generative avatar: a soft flat tint off the account's hue, initials on top. */
 export function Avatar({ hue, initials, size, radius = '50%', fontSize, style }: AvatarProps) {
   return (
     <span
@@ -282,7 +282,9 @@ export function Avatar({ hue, initials, size, radius = '50%', fontSize, style }:
         height: size,
         borderRadius: radius,
         fontSize: fontSize ?? Math.round(size * 0.36),
-        background: `linear-gradient(140deg, oklch(0.74 0.16 ${hue}) 0%, oklch(0.54 0.2 ${hue + 52}) 100%)`,
+        background: `oklch(0.8 0.07 ${hue})`,
+        color: `oklch(0.26 0.05 ${hue})`,
+        textShadow: 'none',
         ...style,
       }}
     >

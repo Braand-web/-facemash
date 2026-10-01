@@ -4,14 +4,7 @@ import type { StoryItem } from '../types';
 export type StoryKind = 'text' | 'photo' | 'video';
 
 /** Backgrounds for text stories, and the fallback fill behind uploaded media. */
-export const STORY_BGS = [
-  'linear-gradient(160deg, #7c5cff 0%, #ff4d9d 100%)',
-  'linear-gradient(160deg, #2570ee 0%, #12b8e6 100%)',
-  'linear-gradient(160deg, #ff7a45 0%, #e8306f 100%)',
-  'linear-gradient(160deg, #0d8a6c 0%, #a3e635 100%)',
-  'linear-gradient(160deg, #1b1340 0%, #7c5cff 100%)',
-  'linear-gradient(160deg, #f5a623 0%, #ff4d9d 100%)',
-];
+export const STORY_BGS = ['#ee4b2b', '#2f56e0', '#2f7d4f', '#8a3b6e', '#b9770e', '#1d1b18'];
 
 interface Payload {
   kind: StoryKind;

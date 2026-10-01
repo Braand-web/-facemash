@@ -1,8 +1,8 @@
 /*
   Facemash — « Aurora » design system.
 
-  One violet → pink → amber gradient carries the brand; everything else is quiet
-  surfaces, hairlines and glass so content (photos, video, people) stays the loudest
+  One solid accent on warm neutrals; everything else is quiet
+  surfaces and hairlines so content (photos, video, people) stays the loudest
   thing on screen. Colour lives in tokens: swap an accent or the theme and the whole
   app follows, including screens that still style themselves inline.
 */
@@ -13,39 +13,36 @@
   --font-display: 'Bricolage Grotesque', 'Geist', system-ui, sans-serif;
 
   /* surfaces */
-  --bg: #07070b;
-  --bg-elev: #0d0d14;
-  --surface: #12121a;
-  --surface2: #1a1a25;
-  --surface3: #252534;
-  --glass: rgb(18 18 28 / 66%);
-  --glass-strong: rgb(12 12 20 / 84%);
-  --line: rgb(255 255 255 / 8%);
-  --line-strong: rgb(255 255 255 / 16%);
+  --bg: #0e0d0c;
+  --bg-elev: #161513;
+  --surface: #181714;
+  --surface2: #211f1c;
+  --surface3: #2d2a26;
+  --glass: rgb(22 21 19 / 78%);
+  --glass-strong: rgb(16 15 13 / 90%);
+  --line: rgb(255 248 235 / 9%);
+  --line-strong: rgb(255 248 235 / 18%);
 
   /* ink */
-  --ink: #f6f5ff;
-  --ink2: #c9c7dc;
-  --ink3: #8e8ca6;
+  --ink: #f4f1ea;
+  --ink2: #cbc6ba;
+  --ink3: #8f8a7d;
 
-  /* brand (violet is the default accent; see [data-accent] below) */
-  --brand-a: #7c5cff;
-  --brand-b: #ff4d9d;
-  --brand-c: #ffb547;
-  --accent: #7c5cff;
+  /* brand (tomato is the default accent; see [data-accent] below) */
+  --brand-a: #ee4b2b;
+  --brand-b: #ee4b2b;
+  --brand-c: #ee4b2b;
+  --accent: #ee4b2b;
   --accentInk: #ffffff;
-  --accent-fg: color-mix(in oklab, var(--accent) 62%, white);
+  --accent-fg: color-mix(in oklab, var(--accent) 70%, white);
   --accentSoft: color-mix(in srgb, var(--accent) 18%, transparent);
   --accentSofter: color-mix(in srgb, var(--accent) 10%, transparent);
-  --grad: linear-gradient(135deg, var(--brand-a) 0%, var(--brand-b) 62%, var(--brand-c) 118%);
-  --grad-soft: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--brand-a) 24%, transparent),
-    color-mix(in srgb, var(--brand-b) 18%, transparent)
-  );
+  /* flat on purpose: the brand is one confident colour, not a gradient */
+  --grad: var(--accent);
+  --grad-soft: var(--accentSofter);
 
   /* semantic */
-  --like: #ff3d71;
+  --like: #ff4a4a;
   --success: #4ade80;
   --warning: #fbbf24;
   --danger: #ff4d6d;
@@ -54,7 +51,7 @@
   --chat-bg: var(--bg);
   --chat-surface: var(--surface);
   --chat-incoming: var(--surface2);
-  --chat-outgoing: linear-gradient(135deg, var(--brand-a), color-mix(in srgb, var(--brand-a) 55%, var(--brand-b)));
+  --chat-outgoing: var(--accent);
   --media-surface: var(--surface2);
 
   /* placeholder media tones (kept for legacy callers) */
@@ -96,7 +93,7 @@
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 30%), 0 6px 16px -10px rgb(0 0 0 / 60%);
   --shadow: 0 24px 60px -28px rgb(0 0 0 / 85%), 0 2px 6px rgb(0 0 0 / 30%);
   --shadow-soft: 0 10px 30px -22px rgb(0 0 0 / 80%);
-  --glow: 0 12px 36px -12px color-mix(in srgb, var(--brand-a) 70%, transparent);
+  --glow: none;
 
   /* motion */
   --ease-standard: cubic-bezier(0.2, 0.72, 0.18, 1);
@@ -109,55 +106,55 @@
 
 :root[data-theme='light'] {
   color-scheme: light;
-  --bg: #f4f3fa;
-  --bg-elev: #ffffff;
-  --surface: #ffffff;
-  --surface2: #efeef7;
-  --surface3: #e2e0ef;
-  --glass: rgb(255 255 255 / 74%);
-  --glass-strong: rgb(255 255 255 / 90%);
-  --line: rgb(24 20 60 / 8%);
-  --line-strong: rgb(24 20 60 / 16%);
-  --ink: #15131f;
-  --ink2: #4a4760;
-  --ink3: #6c6983;
+  --bg: #f5f2eb;
+  --bg-elev: #fffdf8;
+  --surface: #fffdf8;
+  --surface2: #ece8de;
+  --surface3: #ddd8cb;
+  --glass: rgb(255 253 248 / 82%);
+  --glass-strong: rgb(255 253 248 / 94%);
+  --line: rgb(40 30 10 / 10%);
+  --line-strong: rgb(40 30 10 / 20%);
+  --ink: #171511;
+  --ink2: #4d493f;
+  --ink3: #6f6a5d;
   --accent-fg: color-mix(in oklab, var(--accent) 82%, black);
-  --like: #e11d55;
+  --like: #d6322e;
   --success: #15803d;
   --warning: #a16207;
   --danger: #dc2648;
-  --media-surface: #e9e7f4;
+  --media-surface: #e8e3d6;
   --shadow-sm: 0 1px 2px rgb(30 20 80 / 8%), 0 6px 16px -10px rgb(30 20 80 / 22%);
   --shadow: 0 24px 60px -30px rgb(40 30 100 / 32%), 0 2px 6px rgb(30 20 80 / 8%);
   --shadow-soft: 0 10px 30px -22px rgb(40 30 100 / 30%);
-  --chat-bg: #eeedf6;
+  --chat-bg: #efebe2;
   --chat-incoming: #ffffff;
 }
 
-/* Accent palettes: a solid (fills, focus) and the gradient trio around it. */
-:root[data-accent='azure'] {
-  --brand-a: #2570ee;
-  --brand-b: #12b8e6;
-  --brand-c: #5eead4;
-  --accent: #2570ee;
+/* Accent palettes: one solid colour each. */
+:root[data-accent='cobalt'] {
+  --brand-a: #2f56e0;
+  --brand-b: #2f56e0;
+  --brand-c: #2f56e0;
+  --accent: #2f56e0;
 }
-:root[data-accent='rose'] {
-  --brand-a: #e8306f;
-  --brand-b: #ff7a45;
-  --brand-c: #ffc247;
-  --accent: #e8306f;
+:root[data-accent='forest'] {
+  --brand-a: #2f7d4f;
+  --brand-b: #2f7d4f;
+  --brand-c: #2f7d4f;
+  --accent: #2f7d4f;
 }
-:root[data-accent='ember'] {
-  --brand-a: #dc4f0a;
-  --brand-b: #f5a623;
-  --brand-c: #ffe066;
-  --accent: #dc4f0a;
+:root[data-accent='plum'] {
+  --brand-a: #8a3b6e;
+  --brand-b: #8a3b6e;
+  --brand-c: #8a3b6e;
+  --accent: #8a3b6e;
 }
-:root[data-accent='jade'] {
-  --brand-a: #0d8a6c;
-  --brand-b: #12b5c8;
-  --brand-c: #a3e635;
-  --accent: #0d8a6c;
+:root[data-accent='ochre'] {
+  --brand-a: #b9770e;
+  --brand-b: #b9770e;
+  --brand-c: #b9770e;
+  --accent: #b9770e;
 }
 
 /* ------------------------------------------------------------------ base -- */
@@ -527,14 +524,11 @@ p {
 .button-primary {
   background: var(--grad);
   color: #fff;
-  box-shadow: var(--glow);
-  text-shadow: 0 1px 1px rgb(0 0 0 / 14%);
 }
 
 .btn-primary:hover:not(:disabled),
 .button-primary:hover:not(:disabled) {
-  filter: brightness(1.08) saturate(1.05);
-  transform: translateY(-1px);
+  filter: brightness(1.08);
 }
 
 .btn-soft {
@@ -656,7 +650,6 @@ p {
   background: var(--grad);
   border-color: transparent;
   color: #fff;
-  box-shadow: var(--glow);
 }
 
 .badge {
@@ -854,8 +847,6 @@ p {
   font-family: var(--font-display);
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: #fff;
-  text-shadow: 0 1px 2px rgb(0 0 0 / 28%);
   user-select: none;
 }
 
@@ -905,20 +896,8 @@ p {
   position: relative;
   overflow: hidden;
   background:
-    radial-gradient(120% 90% at 12% 8%, oklch(0.66 0.19 var(--h, 265)) 0%, transparent 58%),
-    radial-gradient(110% 90% at 92% 92%, oklch(0.52 0.21 calc(var(--h, 265) + 68)) 0%, transparent 62%),
-    radial-gradient(70% 60% at 70% 20%, oklch(0.7 0.16 calc(var(--h, 265) + 30) / 0.55) 0%, transparent 70%),
-    oklch(0.25 0.07 var(--h, 265));
-}
-
-.media-art::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: radial-gradient(rgb(255 255 255 / 12%) 1px, transparent 1px);
-  background-size: 18px 18px;
-  mask-image: linear-gradient(180deg, transparent, #000 60%, transparent);
-  opacity: 0.55;
+    radial-gradient(120% 90% at 20% 0%, oklch(0.5 0.08 var(--h, 60)) 0%, transparent 70%),
+    oklch(0.3 0.05 var(--h, 60));
 }
 
 .media-art__label {
@@ -945,45 +924,6 @@ p {
   color: var(--ink);
   font-family: var(--font-sans);
   isolation: isolate;
-}
-
-/* Two slow-drifting colour fields behind everything: the "aurora". */
-.app-shell::before,
-.app-shell::after {
-  content: '';
-  position: fixed;
-  z-index: -1;
-  pointer-events: none;
-  border-radius: 50%;
-  filter: blur(90px);
-  opacity: 0.2;
-}
-
-.app-shell::before {
-  top: -22vh;
-  left: -12vw;
-  width: 62vw;
-  height: 62vw;
-  max-width: 760px;
-  max-height: 760px;
-  background: var(--brand-a);
-  animation: fmAurora 26s ease-in-out infinite;
-}
-
-.app-shell::after {
-  right: -16vw;
-  bottom: -26vh;
-  width: 54vw;
-  height: 54vw;
-  max-width: 680px;
-  max-height: 680px;
-  background: var(--brand-b);
-  animation: fmAurora 32s ease-in-out infinite reverse;
-}
-
-:root[data-theme='light'] .app-shell::before,
-:root[data-theme='light'] .app-shell::after {
-  opacity: 0.16;
 }
 
 .shell-layout {
@@ -1510,7 +1450,7 @@ p {
   z-index: 4;
   color: #fff;
   pointer-events: none;
-  filter: drop-shadow(0 6px 24px rgb(255 61 113 / 60%));
+  filter: drop-shadow(0 6px 20px rgb(0 0 0 / 40%));
   animation: fmPop 900ms var(--ease-out) both;
 }
 
@@ -1986,7 +1926,7 @@ p {
   border-radius: 20px !important;
   background: var(--grad) !important;
   color: #fff !important;
-  box-shadow: var(--glow), var(--shadow) !important;
+  box-shadow: var(--shadow) !important;
 }
 
 .thread-pane {

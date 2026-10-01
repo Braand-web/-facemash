@@ -1,13 +1,13 @@
 import { useSyncExternalStore } from 'react';
 
-export type Accent = 'violet' | 'azure' | 'rose' | 'ember' | 'jade';
+export type Accent = 'tomato' | 'cobalt' | 'forest' | 'plum' | 'ochre';
 
 export const ACCENTS: { key: Accent; from: string; to: string }[] = [
-  { key: 'violet', from: '#7c5cff', to: '#ff4d9d' },
-  { key: 'azure', from: '#2570ee', to: '#12b8e6' },
-  { key: 'rose', from: '#e8306f', to: '#ff7a45' },
-  { key: 'ember', from: '#dc4f0a', to: '#f5a623' },
-  { key: 'jade', from: '#0d8a6c', to: '#12b5c8' },
+  { key: 'tomato', from: '#ee4b2b', to: '#ee4b2b' },
+  { key: 'cobalt', from: '#2f56e0', to: '#2f56e0' },
+  { key: 'forest', from: '#2f7d4f', to: '#2f7d4f' },
+  { key: 'plum', from: '#8a3b6e', to: '#8a3b6e' },
+  { key: 'ochre', from: '#b9770e', to: '#b9770e' },
 ];
 
 /** Device-level preferences. Theme and language sync with the account; these stay local. */
@@ -18,7 +18,7 @@ export interface Prefs {
 }
 
 const KEY = 'facemash.prefs';
-const defaults: Prefs = { accent: 'violet', haptics: true, autoplay: true };
+const defaults: Prefs = { accent: 'tomato', haptics: true, autoplay: true };
 
 const read = (): Prefs => {
   try {
