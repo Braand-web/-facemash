@@ -10,13 +10,13 @@ type Mode = 'login' | 'signup' | 'forgot';
 function Hero({ compact }: { compact: boolean }) {
   const { t } = useApp();
   const cards = [
-    { h: 265, r: -6, x: '8%', y: '12%', w: 150, label: '♥ 12,4k' },
-    { h: 330, r: 5, x: '52%', y: '4%', w: 130, label: '▶ 98k' },
-    { h: 40, r: -3, x: '30%', y: '46%', w: 160, label: '♥ 3,8k' },
-    { h: 200, r: 7, x: '62%', y: '56%', w: 120, label: '▶ 240k' },
+    { h: 30, r: -6, x: '8%', y: '12%', w: 150, label: '♥ 12,4k' },
+    { h: 100, r: 5, x: '52%', y: '4%', w: 130, label: '▶ 98k' },
+    { h: 230, r: -3, x: '30%', y: '46%', w: 160, label: '♥ 3,8k' },
+    { h: 340, r: 7, x: '62%', y: '56%', w: 120, label: '▶ 240k' },
   ];
   return (
-    <div className="media-art" style={{ ['--h' as string]: 275, position: 'relative', flex: compact ? 'none' : 1, minHeight: compact ? 230 : '100dvh', display: 'flex', flexDirection: 'column', justifyContent: compact ? 'flex-end' : 'space-between', padding: compact ? '0 26px 54px' : '48px 56px', color: '#fff', overflow: 'hidden' }}>
+    <div className="media-art" style={{ ['--h' as string]: 40, position: 'relative', flex: compact ? 'none' : 1, minHeight: compact ? 230 : '100dvh', display: 'flex', flexDirection: 'column', justifyContent: compact ? 'flex-end' : 'space-between', padding: compact ? '0 26px 54px' : '48px 56px', color: '#fff', overflow: 'hidden' }}>
       {!compact && (
         <div aria-hidden="true" style={{ position: 'absolute', inset: 0 }}>
           {cards.map((c, i) => (

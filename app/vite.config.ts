@@ -27,8 +27,8 @@ export default defineConfig({
               scope: '/',
               display: 'standalone',
               orientation: 'portrait',
-              background_color: '#07070b',
-              theme_color: '#07070b',
+              background_color: '#0e0d0c',
+              theme_color: '#0e0d0c',
               categories: ['social', 'entertainment'],
               icons: [
                 { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },

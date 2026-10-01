@@ -147,7 +147,7 @@ function MessageBubble({
     setSwipe(0);
   };
 
-  const authorColor = `oklch(0.72 0.15 ${author.hue})`;
+  const authorColor = `oklch(0.74 0.1 ${author.hue})`;
   const radius = mine
     ? row.first
       ? '18px 6px 18px 18px'
@@ -185,8 +185,8 @@ function MessageBubble({
             fontWeight: 600,
             fontSize: 11,
             opacity: row.last ? 1 : 0,
-            color: '#fff',
-            background: `linear-gradient(140deg, oklch(0.74 0.16 ${author.hue}), oklch(0.54 0.2 ${author.hue + 52}))`,
+            color: `oklch(0.26 0.05 ${author.hue})`,
+            background: `oklch(0.8 0.07 ${author.hue})`,
           }}
         >
           {toInitials(author.name)}
@@ -686,8 +686,8 @@ function ForwardPicker({
                 placeItems: 'center',
                 fontWeight: 600,
                 fontSize: 14,
-                color: '#fff',
-                background: `linear-gradient(140deg, oklch(0.74 0.16 ${target.hue}), oklch(0.54 0.2 ${target.hue + 52}))`,
+                color: `oklch(0.26 0.05 ${target.hue})`,
+                background: `oklch(0.8 0.07 ${target.hue})`,
               }}
             >
               {target.initials}
@@ -1012,8 +1012,8 @@ function CallOverlay({
               fontFamily: 'var(--font-display)',
               fontWeight: 700,
               fontSize: 36,
-              color: '#fff',
-              background: `linear-gradient(140deg, oklch(0.74 0.16 ${other.hue}), oklch(0.54 0.2 ${other.hue + 52}))`,
+              color: `oklch(0.26 0.05 ${other.hue})`,
+              background: `oklch(0.8 0.07 ${other.hue})`,
             }}
           >
             {toInitials(other.name)}
@@ -1464,8 +1464,8 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
             placeItems: 'center',
             fontWeight: 600,
             fontSize: 14,
-            color: '#fff',
-            background: `linear-gradient(140deg, oklch(0.74 0.16 ${header.hue}), oklch(0.54 0.2 ${header.hue + 52}))`,
+            color: `oklch(0.26 0.05 ${header.hue})`,
+            background: `oklch(0.8 0.07 ${header.hue})`,
           }}
         >
           {header.initials}
@@ -1727,8 +1727,8 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
                     placeItems: 'center',
                     fontWeight: 600,
                     fontSize: 11.5,
-                    color: '#fff',
-                    background: `linear-gradient(140deg, oklch(0.74 0.16 ${memberUser.hue}), oklch(0.54 0.2 ${memberUser.hue + 52}))`,
+                    color: `oklch(0.26 0.05 ${memberUser.hue})`,
+                    background: `oklch(0.8 0.07 ${memberUser.hue})`,
                   }}
                 >
                   {toInitials(memberUser.name)}
