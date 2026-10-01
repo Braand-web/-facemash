@@ -1,10 +1,10 @@
 import { useSyncExternalStore } from 'react';
 
-export type Accent = 'tomato' | 'cobalt' | 'forest' | 'plum' | 'ochre';
+export type Accent = 'cobalt' | 'tomato' | 'forest' | 'plum' | 'ochre';
 
 export const ACCENTS: { key: Accent; from: string; to: string }[] = [
-  { key: 'tomato', from: '#ee4b2b', to: '#ee4b2b' },
-  { key: 'cobalt', from: '#2f56e0', to: '#2f56e0' },
+  { key: 'cobalt', from: '#2563eb', to: '#2563eb' },
+  { key: 'tomato', from: '#e5432a', to: '#e5432a' },
   { key: 'forest', from: '#2f7d4f', to: '#2f7d4f' },
   { key: 'plum', from: '#8a3b6e', to: '#8a3b6e' },
   { key: 'ochre', from: '#b9770e', to: '#b9770e' },
@@ -18,7 +18,7 @@ export interface Prefs {
 }
 
 const KEY = 'facemash.prefs';
-const defaults: Prefs = { accent: 'tomato', haptics: true, autoplay: true };
+const defaults: Prefs = { accent: 'cobalt', haptics: true, autoplay: true };
 
 const read = (): Prefs => {
   try {

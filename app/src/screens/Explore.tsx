@@ -169,7 +169,7 @@ export function Explore() {
               <h3 className="section-title" style={{ margin: '22px 16px 12px' }}>{t.trending}</h3>
               <div className="hscroll" style={{ padding: '0 16px' }}>
                 {trends.slice(0, 5).map((trend, i) => (
-                  <button key={trend.tag} onClick={() => goTag(trend.tag)} className="media-art" style={{ ['--h' as string]: (i * 67 + 30) % 360, flex: '0 0 148px', height: 104, borderRadius: 22, padding: 14, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', textAlign: 'left', color: '#fff' }}>
+                  <button key={trend.tag} onClick={() => goTag(trend.tag)} className="media-art" style={{ ['--h' as string]: (i * 23 + 210) % 360, flex: '0 0 148px', height: 104, borderRadius: 22, padding: 14, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', textAlign: 'left', color: '#fff' }}>
                     <span className="display" style={{ position: 'relative', fontSize: 18, fontWeight: 800 }}>{trend.tag}</span>
                     <span style={{ position: 'relative', fontSize: 12, opacity: 0.85 }}>{trend.count}</span>
                   </button>

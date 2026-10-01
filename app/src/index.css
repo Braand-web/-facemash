@@ -13,26 +13,26 @@
   --font-display: 'Bricolage Grotesque', 'Geist', system-ui, sans-serif;
 
   /* surfaces */
-  --bg: #0e0d0c;
-  --bg-elev: #161513;
-  --surface: #181714;
-  --surface2: #211f1c;
-  --surface3: #2d2a26;
-  --glass: rgb(22 21 19 / 78%);
-  --glass-strong: rgb(16 15 13 / 90%);
-  --line: rgb(255 248 235 / 9%);
-  --line-strong: rgb(255 248 235 / 18%);
+  --bg: #0a0b0d;
+  --bg-elev: #121316;
+  --surface: #121316;
+  --surface2: #1b1d21;
+  --surface3: #26292e;
+  --glass: rgb(16 17 20 / 80%);
+  --glass-strong: rgb(12 13 15 / 92%);
+  --line: rgb(255 255 255 / 9%);
+  --line-strong: rgb(255 255 255 / 18%);
 
   /* ink */
-  --ink: #f4f1ea;
-  --ink2: #cbc6ba;
-  --ink3: #8f8a7d;
+  --ink: #eceef1;
+  --ink2: #c3c7ce;
+  --ink3: #8b909a;
 
-  /* brand (tomato is the default accent; see [data-accent] below) */
-  --brand-a: #ee4b2b;
-  --brand-b: #ee4b2b;
-  --brand-c: #ee4b2b;
-  --accent: #ee4b2b;
+  /* brand (cobalt is the default accent; see [data-accent] below) */
+  --brand-a: #2563eb;
+  --brand-b: #2563eb;
+  --brand-c: #2563eb;
+  --accent: #2563eb;
   --accentInk: #ffffff;
   --accent-fg: color-mix(in oklab, var(--accent) 70%, white);
   --accentSoft: color-mix(in srgb, var(--accent) 18%, transparent);
@@ -42,7 +42,7 @@
   --grad-soft: var(--accentSofter);
 
   /* semantic */
-  --like: #ff4a4a;
+  --like: #f43f5e;
   --success: #4ade80;
   --warning: #fbbf24;
   --danger: #ff4d6d;
@@ -106,37 +106,37 @@
 
 :root[data-theme='light'] {
   color-scheme: light;
-  --bg: #f5f2eb;
-  --bg-elev: #fffdf8;
-  --surface: #fffdf8;
-  --surface2: #ece8de;
-  --surface3: #ddd8cb;
-  --glass: rgb(255 253 248 / 82%);
-  --glass-strong: rgb(255 253 248 / 94%);
-  --line: rgb(40 30 10 / 10%);
-  --line-strong: rgb(40 30 10 / 20%);
-  --ink: #171511;
-  --ink2: #4d493f;
-  --ink3: #6f6a5d;
+  --bg: #f4f5f7;
+  --bg-elev: #ffffff;
+  --surface: #ffffff;
+  --surface2: #eceef1;
+  --surface3: #dde0e5;
+  --glass: rgb(255 255 255 / 82%);
+  --glass-strong: rgb(255 255 255 / 94%);
+  --line: rgb(15 20 30 / 9%);
+  --line-strong: rgb(15 20 30 / 18%);
+  --ink: #0f1217;
+  --ink2: #444a55;
+  --ink3: #666c78;
   --accent-fg: color-mix(in oklab, var(--accent) 82%, black);
-  --like: #d6322e;
+  --like: #e11d48;
   --success: #15803d;
   --warning: #a16207;
   --danger: #dc2648;
-  --media-surface: #e8e3d6;
+  --media-surface: #e6e8ec;
   --shadow-sm: 0 1px 2px rgb(30 20 80 / 8%), 0 6px 16px -10px rgb(30 20 80 / 22%);
   --shadow: 0 24px 60px -30px rgb(40 30 100 / 32%), 0 2px 6px rgb(30 20 80 / 8%);
   --shadow-soft: 0 10px 30px -22px rgb(40 30 100 / 30%);
-  --chat-bg: #efebe2;
+  --chat-bg: #eceef2;
   --chat-incoming: #ffffff;
 }
 
 /* Accent palettes: one solid colour each. */
-:root[data-accent='cobalt'] {
-  --brand-a: #2f56e0;
-  --brand-b: #2f56e0;
-  --brand-c: #2f56e0;
-  --accent: #2f56e0;
+:root[data-accent='tomato'] {
+  --brand-a: #e5432a;
+  --brand-b: #e5432a;
+  --brand-c: #e5432a;
+  --accent: #e5432a;
 }
 :root[data-accent='forest'] {
   --brand-a: #2f7d4f;
@@ -896,8 +896,8 @@ p {
   position: relative;
   overflow: hidden;
   background:
-    radial-gradient(120% 90% at 20% 0%, oklch(0.5 0.08 var(--h, 60)) 0%, transparent 70%),
-    oklch(0.3 0.05 var(--h, 60));
+    radial-gradient(120% 90% at 20% 0%, oklch(0.5 0.07 var(--h, 250)) 0%, transparent 70%),
+    oklch(0.3 0.04 var(--h, 250));
 }
 
 .media-art__label {
