@@ -1,18 +1,22 @@
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Shell } from './components/Shell';
 import { Brand } from './components/ui';
 import { Overlays } from './components/Overlays';
-import { Auth } from './screens/Auth';
-import { Onboarding } from './screens/Onboarding';
-import { Home } from './screens/Home';
-import { Explore } from './screens/Explore';
-import { Messages } from './screens/Messages';
-import { Profile } from './screens/Profile';
-import { Notifications, Saved, TagFeed } from './screens/Lists';
-import { PostDetail } from './screens/PostDetail';
-import { Settings } from './screens/Settings';
 import { useApp } from './store';
 import { demoMode, hasBackend } from './lib/supabase';
+
+const Auth = lazy(() => import('./screens/Auth').then(({ Auth }) => ({ default: Auth })));
+const Onboarding = lazy(() => import('./screens/Onboarding').then(({ Onboarding }) => ({ default: Onboarding })));
+const Home = lazy(() => import('./screens/Home').then(({ Home }) => ({ default: Home })));
+const Explore = lazy(() => import('./screens/Explore').then(({ Explore }) => ({ default: Explore })));
+const Messages = lazy(() => import('./screens/Messages').then(({ Messages }) => ({ default: Messages })));
+const Profile = lazy(() => import('./screens/Profile').then(({ Profile }) => ({ default: Profile })));
+const Notifications = lazy(() => import('./screens/Lists').then(({ Notifications }) => ({ default: Notifications })));
+const Saved = lazy(() => import('./screens/Lists').then(({ Saved }) => ({ default: Saved })));
+const TagFeed = lazy(() => import('./screens/Lists').then(({ TagFeed }) => ({ default: TagFeed })));
+const PostDetail = lazy(() => import('./screens/PostDetail').then(({ PostDetail }) => ({ default: PostDetail })));
+const Settings = lazy(() => import('./screens/Settings').then(({ Settings }) => ({ default: Settings })));
 
 function StatusNotice({ title, body, action }: { title: string; body: string; action?: { label: string; onClick: () => void } }) {
   return (
@@ -36,6 +40,7 @@ function StatusNotice({ title, body, action }: { title: string; body: string; ac
 
 export function AppRoutes() {
   const { session, authReady, syncing, accountError, retryAccount, t } = useApp();
+  const loadingFallback = <StatusNotice title={t.authLoading} body={t.authLoadingBody} />;
 
   if (!hasBackend && !demoMode) {
     return <StatusNotice title={t.backendUnavailableTitle} body={t.backendUnavailableBody} />;
@@ -54,27 +59,41 @@ export function AppRoutes() {
     return <StatusNotice title={t.accountLoadingTitle} body={t.accountLoadingBody} />;
   }
 
-  if (!session) return <Auth />;
-  if (!session.onboarded) return <Onboarding />;
+  if (!session) {
+    return (
+      <Suspense fallback={loadingFallback}>
+        <Auth />
+      </Suspense>
+    );
+  }
+  if (!session.onboarded) {
+    return (
+      <Suspense fallback={loadingFallback}>
+        <Onboarding />
+      </Suspense>
+    );
+  }
 
   return (
     <>
-      <Routes>
-        <Route element={<Shell />}>
-          <Route path="/" element={<Home />} />
-          <Route path="/following" element={<Home />} />
-          <Route path="/explore" element={<Explore />} />
-          <Route path="/messages" element={<Messages />} />
-          <Route path="/messages/:kind/:id" element={<Messages />} />
-          <Route path="/profile/:id" element={<Profile />} />
-          <Route path="/notifications" element={<Notifications />} />
-          <Route path="/saved" element={<Saved />} />
-          <Route path="/tag/:tag" element={<TagFeed />} />
-          <Route path="/post/:id" element={<PostDetail />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
+      <Suspense fallback={loadingFallback}>
+        <Routes>
+          <Route element={<Shell />}>
+            <Route path="/" element={<Home />} />
+            <Route path="/following" element={<Home />} />
+            <Route path="/explore" element={<Explore />} />
+            <Route path="/messages" element={<Messages />} />
+            <Route path="/messages/:kind/:id" element={<Messages />} />
+            <Route path="/profile/:id" element={<Profile />} />
+            <Route path="/notifications" element={<Notifications />} />
+            <Route path="/saved" element={<Saved />} />
+            <Route path="/tag/:tag" element={<TagFeed />} />
+            <Route path="/post/:id" element={<PostDetail />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </Suspense>
       <Overlays />
     </>
   );

@@ -1,13 +1,14 @@
-import { StrictMode } from 'react';
+import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, HashRouter } from 'react-router-dom';
 import { AppRoutes } from './App';
-import { MobileFrame } from './screens/MobileFrame';
 import { AppProvider } from './store';
 import { OverlayProvider } from './overlays';
 import { ViewportProvider } from './viewport';
 import { initPrefs } from './lib/prefs';
 import './index.css';
+
+const MobileFrame = lazy(() => import('./screens/MobileFrame').then(({ MobileFrame }) => ({ default: MobileFrame })));
 
 initPrefs();
 
@@ -25,7 +26,9 @@ createRoot(document.getElementById('root')!).render(
     <AppProvider>
       <OverlayProvider>
         {framed ? (
-          <MobileFrame />
+          <Suspense fallback={<div role="status" aria-label="Chargement" style={{ minHeight: '100dvh' }} />}>
+            <MobileFrame />
+          </Suspense>
         ) : (
           <Router>
             <ViewportProvider>
