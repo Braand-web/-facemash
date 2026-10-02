@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { Suspense, useEffect, useMemo, useRef } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Avatar, Icon } from './Icon';
 import { Brand, FollowButton, PersonRow } from './ui';
@@ -8,6 +8,7 @@ import { demoMode } from '../lib/supabase';
 import { useLayout } from '../viewport';
 import { haptic } from '../lib/haptics';
 import { initials as toInitials } from '../lib/format';
+import { FeedSkeleton, ListSkeleton } from './Skeletons';
 import type { User } from '../types';
 
 export function useTrends() {
@@ -349,6 +350,7 @@ function useShortcuts() {
 export function Shell() {
   const location = useLocation();
   const { wide, width, shellHeight, boxed } = useLayout();
+  const { t } = useApp();
   const messengerMode = location.pathname.startsWith('/messages');
   const reels = location.pathname === '/';
   const showRail = width >= 1280 && !messengerMode;
@@ -365,10 +367,18 @@ export function Shell() {
             paddingBottom: messengerMode || reels ? 0 : wide ? 48 : boxed ? 100 : 'calc(100px + var(--safe-bottom))',
           }}
         >
-          {/* Keyed on the route so each screen fades in instead of snapping. */}
-          <div key={messengerMode ? 'messages' : location.pathname} className="screen">
-            <Outlet />
-          </div>
+          <Suspense
+            fallback={
+              <div className="screen" role="status" aria-label={t.authLoading} aria-busy="true">
+                {messengerMode ? <ListSkeleton count={4} /> : <FeedSkeleton count={1} />}
+              </div>
+            }
+          >
+            {/* Keep the shell and navigation mounted while each route fades in. */}
+            <div key={messengerMode ? 'messages' : location.pathname} className="screen">
+              <Outlet />
+            </div>
+          </Suspense>
         </main>
         {showRail && <RightRail />}
       </div>

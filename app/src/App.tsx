@@ -76,24 +76,22 @@ export function AppRoutes() {
 
   return (
     <>
-      <Suspense fallback={loadingFallback}>
-        <Routes>
-          <Route element={<Shell />}>
-            <Route path="/" element={<Home />} />
-            <Route path="/following" element={<Home />} />
-            <Route path="/explore" element={<Explore />} />
-            <Route path="/messages" element={<Messages />} />
-            <Route path="/messages/:kind/:id" element={<Messages />} />
-            <Route path="/profile/:id" element={<Profile />} />
-            <Route path="/notifications" element={<Notifications />} />
-            <Route path="/saved" element={<Saved />} />
-            <Route path="/tag/:tag" element={<TagFeed />} />
-            <Route path="/post/:id" element={<PostDetail />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        </Routes>
-      </Suspense>
+      <Routes>
+        <Route element={<Shell />}>
+          <Route path="/" element={<Home />} />
+          <Route path="/following" element={<Home />} />
+          <Route path="/explore" element={<Explore />} />
+          <Route path="/messages" element={<Messages />} />
+          <Route path="/messages/:kind/:id" element={<Messages />} />
+          <Route path="/profile/:id" element={<Profile />} />
+          <Route path="/notifications" element={<Notifications />} />
+          <Route path="/saved" element={<Saved />} />
+          <Route path="/tag/:tag" element={<TagFeed />} />
+          <Route path="/post/:id" element={<PostDetail />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
       <Overlays />
     </>
   );
