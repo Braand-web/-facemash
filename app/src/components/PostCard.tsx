@@ -49,7 +49,7 @@ const feedRatio = (ratio: string): string => {
   return `${a} / ${b}`;
 };
 
-export function PostCard({ post }: { post: Post }) {
+export function PostCard({ post, compactMedia = false }: { post: Post; compactMedia?: boolean }) {
   const navigate = useNavigate();
   const { t, data, toggleLike, toggleSave, toggleRepost, meId, user } = useApp();
   const { openShare, openSheet, openComments } = useOverlays();
@@ -87,7 +87,11 @@ export function PostCard({ post }: { post: Post }) {
         aria-label={item.label}
         onClick={onMediaClick}
         onKeyDown={(e) => e.key === 'Enter' && openPost()}
-        style={{ aspectRatio: feedRatio(ratio), maxHeight: 580, cursor: 'pointer' }}
+        style={{
+          aspectRatio: feedRatio(ratio),
+          maxHeight: compactMedia ? 'min(580px, max(320px, 44svh))' : 'min(580px, 68svh)',
+          cursor: 'pointer',
+        }}
       >
         <MediaFill item={item} hue={author.hue} autoplay muted={muted} />
         {isVideo && !item.url && (

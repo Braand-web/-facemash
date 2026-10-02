@@ -2118,3 +2118,265 @@ p {
 .story-frame input::placeholder {
   color: rgb(255 255 255 / 62%);
 }
+
+/* The For You header keeps navigation and media controls in one safe-area row. */
+.feed-overlay-header {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin: 0 auto;
+  padding: calc(10px + var(--safe-top)) 12px 0;
+  pointer-events: none;
+}
+
+.feed-overlay-header--wide {
+  top: 32px;
+  max-width: 470px;
+}
+
+.feed-overlay-header--wide .feed-overlay-header__search {
+  visibility: hidden;
+}
+
+.feed-overlay-header__search,
+.feed-overlay-header__switcher,
+.feed-overlay-header__actions {
+  min-width: 0;
+  pointer-events: auto;
+}
+
+.feed-overlay-header__search {
+  display: flex;
+  color: #fff;
+}
+
+.feed-overlay-header__switcher {
+  justify-self: center;
+  width: 100%;
+  max-width: 232px;
+}
+
+.feed-overlay-header__switcher .seg__item {
+  min-width: 0;
+  padding-inline: clamp(6px, 2vw, 14px);
+  font-size: clamp(11.5px, 3.2vw, 13.5px);
+}
+
+.feed-overlay-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.feed-overlay-header__actions .icon-btn {
+  width: 44px;
+  height: 44px;
+}
+
+.feed-overlay-header :is(button, [role='tab']):focus-visible,
+.reel__rail button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+.reel-stage {
+  --reel-bottom: calc(102px + var(--safe-bottom));
+}
+
+.reel-stage--wide {
+  --reel-bottom: 34px;
+}
+
+.reel__rail {
+  gap: clamp(7px, 1.65vh, 14px);
+}
+
+.reel__action {
+  min-width: 48px;
+  min-height: 44px;
+  gap: 2px;
+  font-size: 11.5px;
+}
+
+.reel__action .disc {
+  width: 44px;
+  height: 44px;
+}
+
+.reel__caption {
+  right: 72px;
+  bottom: calc(var(--reel-bottom) + 12px);
+  gap: 8px;
+}
+
+.reel__progress {
+  left: 14px;
+  right: 14px;
+  bottom: calc(var(--reel-bottom) - 8px);
+}
+
+.following-feed .story-rail {
+  gap: 12px;
+  padding: 16px 16px 18px;
+}
+
+.following-feed .post {
+  margin: 0 12px 14px;
+  padding: 17px 17px 10px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+}
+
+.following-feed .post__head {
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.following-feed .post__author {
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.following-feed .post__name {
+  line-height: 1.25;
+}
+
+.following-feed .post__meta {
+  margin-top: 3px;
+  line-height: 1.35;
+}
+
+.following-feed .post__text {
+  margin-bottom: 14px;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.following-feed .post__media {
+  border-radius: 20px;
+}
+
+.following-feed .actions {
+  gap: 2px;
+  margin-top: 10px;
+}
+
+.following-feed .act {
+  min-height: 44px;
+  padding-inline: 8px;
+}
+
+@media (max-width: 600px) {
+  .feed-overlay-header {
+    max-width: none;
+  }
+
+  .following-feed .story-rail {
+    padding: 14px 14px 16px;
+  }
+
+  .following-feed .post {
+    margin: 0 10px 12px;
+    padding: 14px 14px 9px;
+    border-radius: 22px;
+  }
+
+  .following-feed .post__media {
+    border-radius: 18px;
+  }
+}
+
+@media (max-width: 360px) {
+  .feed-overlay-header {
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+    gap: 5px;
+    padding-inline: 9px;
+  }
+
+  .feed-overlay-header__actions {
+    gap: 2px;
+  }
+
+  .feed-overlay-header__actions .icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .following-feed .post {
+    margin-inline: 7px;
+    padding-inline: 12px;
+  }
+
+  .following-feed .act {
+    gap: 4px;
+    padding-inline: 6px;
+    font-size: 12.5px;
+  }
+}
+
+@media (max-height: 740px) and (max-width: 999px) {
+  .reel-stage {
+    --reel-bottom: calc(90px + var(--safe-bottom));
+  }
+
+  .reel__rail {
+    gap: 7px;
+  }
+
+  .reel__action .disc {
+    width: 42px;
+    height: 42px;
+  }
+
+  .reel__avatar-frame {
+    padding: 1px !important;
+  }
+
+  .reel__avatar-frame .ring,
+  .reel__avatar-frame .ring__gap,
+  .reel__avatar-frame .avatar {
+    width: 44px !important;
+    height: 44px !important;
+  }
+}
+
+@media (max-height: 620px) and (max-width: 999px) {
+  .reel__rail {
+    gap: 2px;
+  }
+
+  .reel__action {
+    flex-direction: row;
+    gap: 4px;
+    font-size: 11px;
+  }
+
+  .reel__action .disc {
+    width: 40px;
+    height: 40px;
+  }
+
+  .reel__caption {
+    right: 86px;
+    gap: 5px;
+  }
+
+  .reel__avatar-frame {
+    padding: 0 !important;
+  }
+
+  .reel__avatar-frame .ring,
+  .reel__avatar-frame .ring__gap,
+  .reel__avatar-frame .avatar {
+    width: 40px !important;
+    height: 40px !important;
+  }
+}

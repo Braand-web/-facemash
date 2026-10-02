@@ -161,7 +161,7 @@ function ReelItem({ post, active, muted }: { post: Post; active: boolean; muted:
 
       <div className="reel__rail">
         <div style={{ position: 'relative', marginBottom: 6 }}>
-          <span style={{ display: 'grid', padding: 2, borderRadius: '50%', background: '#fff' }}>
+          <span className="reel__avatar-frame" style={{ display: 'grid', padding: 2, borderRadius: '50%', background: '#fff' }}>
             <UserAvatar userId={post.authorId} size={50} onClick={() => navigate(`/profile/${post.authorId}`)} />
           </span>
           {meta.showFollow && (
@@ -190,7 +190,7 @@ function ReelItem({ post, active, muted }: { post: Post; active: boolean; muted:
           {meta.shares}
         </button>
         <button className="reel__action" onClick={() => openSheet({ kind: 'post', id: post.id, mine: post.authorId === meId, author: post.authorId })} aria-label={t.more}>
-          <span className="disc" style={{ width: 38, height: 38 }}><Icon name="more_horiz" size={22} /></span>
+          <span className="disc"><Icon name="more_horiz" size={22} /></span>
         </button>
       </div>
       <ReelProgress active={active} paused={paused} video={video} />
@@ -214,12 +214,11 @@ function FollowIcon({ userId }: { userId: string }) {
 
 const REEL_PAGE = 5;
 
-function ForYou() {
+function ForYou({ muted, onToggleSound }: { muted: boolean; onToggleSound: () => void }) {
   const { data, user, t, meId } = useApp();
   const posts = useMemo(() => rankedPosts(data, user, meId), [data, user, meId]);
   const [index, setIndex] = useState(0);
   const [visible, setVisible] = useState(REEL_PAGE);
-  const [muted, setMuted] = useState(true);
   const { wide } = useLayout();
   const scroller = useRef<HTMLDivElement | null>(null);
 
@@ -251,14 +250,13 @@ function ForYou() {
 
   return (
     <div
-      className="reel-stage"
+      className={`reel-stage${wide ? ' reel-stage--wide' : ''}`}
       style={{
         height: wide ? 'calc(var(--shell-h) - 32px)' : 'var(--shell-h)',
         margin: wide ? '16px auto' : 0,
         maxWidth: wide ? 470 : undefined,
         borderRadius: wide ? 32 : 0,
         boxShadow: wide ? 'var(--shadow)' : undefined,
-        ['--reel-bottom' as string]: wide ? '34px' : 'calc(96px + var(--safe-bottom))',
       }}
     >
       <div
@@ -271,16 +269,13 @@ function ForYou() {
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown' || e.key === 'PageDown') { e.preventDefault(); step(1); }
           if (e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); step(-1); }
-          if (e.key.toLowerCase() === 'm') setMuted((m) => !m);
+          if (e.key.toLowerCase() === 'm') onToggleSound();
         }}
       >
         {posts.slice(0, visible).map((post, i) => (
           <ReelItem key={post.id} post={post} active={i === index} muted={muted} />
         ))}
       </div>
-      <button className="icon-btn icon-btn--glass" onClick={() => setMuted((m) => !m)} aria-label={muted ? t.unmute : t.mute} style={{ position: 'absolute', right: 12, top: 'calc(70px + var(--safe-top))', zIndex: 8, width: 38, height: 38 }}>
-        <Icon name={muted ? 'volume_off' : 'volume_up'} size={19} />
-      </button>
     </div>
   );
 }
@@ -311,6 +306,8 @@ function Suggestions() {
 function Following() {
   const navigate = useNavigate();
   const { data, user, t, meId, loading, refresh } = useApp();
+  const { width } = useLayout();
+  const compactMedia = width <= 600;
   const [page, setPage] = useState(1);
   const sentinel = useRef<HTMLDivElement | null>(null);
 
@@ -335,32 +332,34 @@ function Following() {
 
   return (
     <PullToRefresh onRefresh={refresh}>
-      <StoryRail />
-      {!followingSomeone && (
-        <EmptyState
-          icon="group_add"
-          title={t.followingEmptyTitle}
-          body={t.tapFollow}
-          action={<button className="btn btn-primary" onClick={() => navigate('/explore')}>{t.goExplore}</button>}
-        />
-      )}
-      {loading && <FeedSkeleton count={2} />}
-      <div style={{ padding: '0 0' }}>
-        {shown.map((post, i) => (
-          <div key={post.id}>
-            <PostCard post={post} />
-            {i === 1 && <Suggestions />}
-          </div>
-        ))}
-      </div>
-      {posts.length > 0 && !hasMore && (
-        <p style={{ textAlign: 'center', color: 'var(--ink3)', fontSize: 13.5, padding: '18px 0 6px' }}>{t.caughtUp}</p>
-      )}
-      {hasMore && (
-        <div ref={sentinel}>
-          <FeedSkeleton count={1} />
+      <div className="following-feed">
+        <StoryRail />
+        {!followingSomeone && (
+          <EmptyState
+            icon="group_add"
+            title={t.followingEmptyTitle}
+            body={t.tapFollow}
+            action={<button className="btn btn-primary" onClick={() => navigate('/explore')}>{t.goExplore}</button>}
+          />
+        )}
+        {loading && <FeedSkeleton count={2} />}
+        <div className="following-feed__posts">
+          {shown.map((post, i) => (
+            <div key={post.id}>
+              <PostCard post={post} compactMedia={compactMedia} />
+              {i === 1 && <Suggestions />}
+            </div>
+          ))}
         </div>
-      )}
+        {posts.length > 0 && !hasMore && (
+          <p style={{ textAlign: 'center', color: 'var(--ink3)', fontSize: 13.5, padding: '18px 0 6px' }}>{t.caughtUp}</p>
+        )}
+        {hasMore && (
+          <div ref={sentinel}>
+            <FeedSkeleton count={1} />
+          </div>
+        )}
+      </div>
     </PullToRefresh>
   );
 }
@@ -370,6 +369,8 @@ export function Home() {
   const location = useLocation();
   const { t, data } = useApp();
   const { wide } = useLayout();
+  const [muted, setMuted] = useState(true);
+  const toggleSound = () => setMuted((value) => !value);
   const isForYou = location.pathname === '/';
   const unread = data.notifications.filter((n) => !n.read).length;
 
@@ -399,19 +400,32 @@ export function Home() {
         { key: 'following', label: t.subs },
         { key: 'for', label: t.forYou },
       ]}
-      style={{ width: wide ? 280 : isForYou ? 232 : 176 }}
+      style={{ width: isForYou ? '100%' : wide ? 280 : 176 }}
     />
   );
 
   if (isForYou) {
     return (
-      <div style={{ position: 'relative' }}>
-        <header style={{ position: 'absolute', zIndex: 20, top: wide ? 32 : 0, left: 0, right: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'calc(10px + var(--safe-top)) 12px 0', pointerEvents: 'none', maxWidth: wide ? 470 : undefined, margin: '0 auto' }}>
-          <span style={{ pointerEvents: 'auto', color: '#fff', visibility: wide ? 'hidden' : 'visible' }}>{search}</span>
-          <span style={{ pointerEvents: 'auto' }}>{switcher}</span>
-          <span style={{ pointerEvents: 'auto', color: '#fff' }}>{bell}</span>
+      <div className="reel-stage-wrap" style={{ position: 'relative' }}>
+        <header className={`feed-overlay-header${wide ? ' feed-overlay-header--wide' : ''}`}>
+          <span className="feed-overlay-header__search">{search}</span>
+          <span className="feed-overlay-header__switcher">
+            {switcher}
+          </span>
+          <div className="feed-overlay-header__actions">
+            {bell}
+            <button
+              className="icon-btn icon-btn--glass"
+              type="button"
+              onClick={toggleSound}
+              aria-label={muted ? t.unmute : t.mute}
+              aria-pressed={!muted}
+            >
+              <Icon name={muted ? 'volume_off' : 'volume_up'} size={19} />
+            </button>
+          </div>
         </header>
-        <ForYou />
+        <ForYou muted={muted} onToggleSound={toggleSound} />
       </div>
     );
   }
