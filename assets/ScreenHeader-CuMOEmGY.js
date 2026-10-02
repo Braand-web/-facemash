@@ -1,0 +1,1 @@
+import{H as e,U as t,Z as n}from"./ui-Ccgx-S2j.js";var r=t();function i({title:t,onBack:i,right:a}){let o=n();return(0,r.jsxs)(`header`,{className:`topbar`,children:[(0,r.jsx)(`button`,{className:`icon-btn`,onClick:i??(()=>o(-1)),"aria-label":`Retour`,children:(0,r.jsx)(e,{name:`arrow_back`,size:22})}),(0,r.jsx)(`h1`,{className:`topbar__title`,children:t}),a]})}export{i as t};

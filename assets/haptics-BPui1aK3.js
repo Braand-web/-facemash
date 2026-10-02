@@ -1,0 +1,1 @@
+import{p as e}from"./ui-Ccgx-S2j.js";var t={tick:6,light:12,success:[10,40,16]},n=(n=`light`)=>{if(e().haptics)try{navigator.vibrate?.(t[n])}catch{}};export{n as t};
