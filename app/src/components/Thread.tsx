@@ -50,6 +50,63 @@ interface Row {
   last?: boolean;
 }
 
+interface AttachmentPreviewData {
+  url: string;
+  name: string;
+  size?: string;
+  mimeType: string;
+}
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+  aac: 'audio/aac',
+  avif: 'image/avif',
+  avi: 'video/x-msvideo',
+  csv: 'text/csv',
+  flac: 'audio/flac',
+  gif: 'image/gif',
+  jpeg: 'image/jpeg',
+  jpg: 'image/jpeg',
+  json: 'application/json',
+  m4a: 'audio/mp4',
+  mp3: 'audio/mpeg',
+  mp4: 'video/mp4',
+  mov: 'video/quicktime',
+  mkv: 'video/x-matroska',
+  oga: 'audio/ogg',
+  ogg: 'audio/ogg',
+  pdf: 'application/pdf',
+  png: 'image/png',
+  txt: 'text/plain',
+  xml: 'application/xml',
+  wav: 'audio/wav',
+  webm: 'video/webm',
+  webp: 'image/webp',
+};
+
+const attachmentName = (message: Message) =>
+  message.docName ?? message.mediaLabel?.split(' · ')[0] ?? 'file';
+
+function attachmentPreviewData(message: Message): AttachmentPreviewData | null {
+  if (!message.mediaUrl) return null;
+  const name = attachmentName(message);
+  const extension = name.split('.').pop()?.toLowerCase() ?? '';
+  const mimeType = MIME_BY_EXTENSION[extension] || (message.kind === 'photo' ? 'image/*' : 'application/octet-stream');
+  return { url: message.mediaUrl, name, size: message.docSize, mimeType };
+}
+
+function attachmentDownloadUrl(url: string, name: string) {
+  try {
+    const target = new URL(url);
+    if (target.protocol === 'http:' || target.protocol === 'https:') {
+      target.searchParams.set('download', name);
+      return target.toString();
+    }
+  } catch {
+    // Keep local preview URLs and malformed URLs unchanged.
+  }
+  return url;
+}
+
 function buildRows(
   messages: Message[],
   unreadSince: number,
@@ -98,6 +155,7 @@ function MessageBubble({
   onToggleVoice,
   highlighted,
   current,
+  onPreview,
 }: {
   row: Row;
   isGroup: boolean;
@@ -109,6 +167,7 @@ function MessageBubble({
   highlighted?: boolean;
   /** The match the viewer is currently on. */
   current?: boolean;
+  onPreview: (message: Message) => void;
 }) {
   const { meId, userById, lang } = useApp();
   const message = row.message!;
@@ -261,18 +320,20 @@ function MessageBubble({
         )}
 
         {message.kind === 'photo' && !!message.mediaUrl && (
-          <img
-            src={message.mediaUrl}
-            alt={message.mediaLabel ?? ''}
-            loading="lazy"
-            style={{
-              display: 'block',
-              margin: '1px 0 6px',
-              borderRadius: 12,
-              width: 'min(62vw,260px)',
-              objectFit: 'cover',
-            }}
-          />
+          <button
+            className="message-attachment-trigger"
+            type="button"
+            onClick={() => onPreview(message)}
+            aria-label={`${lang === 'fr' ? 'Aperçu' : 'Preview'} : ${attachmentName(message)}`}
+            style={{ display: 'block', margin: '1px 0 6px', padding: 0, border: 0, borderRadius: 12, background: 'transparent', cursor: 'pointer' }}
+          >
+            <img
+              src={message.mediaUrl}
+              alt={attachmentName(message)}
+              loading="lazy"
+              style={{ display: 'block', borderRadius: 12, width: 'min(62vw,260px)', maxHeight: 320, objectFit: 'cover' }}
+            />
+          </button>
         )}
 
         {message.kind === 'photo' && !message.mediaUrl && !!message.mediaLabel && (
@@ -360,37 +421,68 @@ function MessageBubble({
               background: 'oklch(0.5 0 0 / 0.14)',
             }}
           >
-            <span
+            <button
+              className="message-attachment-trigger"
+              type="button"
+              onClick={() => onPreview(message)}
+              disabled={!message.mediaUrl}
+              aria-label={`${lang === 'fr' ? 'Aperçu' : 'Preview'} : ${attachmentName(message)}`}
               style={{
-                width: 34,
-                height: 34,
-                flex: '0 0 34px',
-                borderRadius: 9,
-                background: 'oklch(0.5 0 0 / 0.18)',
-                display: 'grid',
-                placeItems: 'center',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 11,
+                flex: 1,
+                minWidth: 0,
+                padding: 0,
+                textAlign: 'left',
+                color: 'inherit',
+                background: 'transparent',
+                cursor: message.mediaUrl ? 'pointer' : 'default',
               }}
             >
-              <Icon name="description" size={19} />
-            </span>
-            <span style={{ flex: 1, minWidth: 0 }}>
               <span
                 style={{
-                  display: 'block',
-                  fontSize: 13.5,
-                  fontWeight: 600,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
+                  width: 34,
+                  height: 34,
+                  flex: '0 0 34px',
+                  borderRadius: 9,
+                  background: 'oklch(0.5 0 0 / 0.18)',
+                  display: 'grid',
+                  placeItems: 'center',
                 }}
               >
-                {message.docName}
+                <Icon name="description" size={19} />
               </span>
-              <span style={{ display: 'block', fontSize: 11.5, opacity: 0.72, marginTop: 1 }}>
-                {message.docSize}
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span
+                  style={{
+                    display: 'block',
+                    fontSize: 13.5,
+                    fontWeight: 600,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {message.docName ?? attachmentName(message)}
+                </span>
+                <span style={{ display: 'block', fontSize: 11.5, opacity: 0.72, marginTop: 1 }}>
+                  {message.docSize}
+                </span>
               </span>
-            </span>
-            <Icon name="download" size={19} style={{ opacity: 0.8 }} />
+            </button>
+            {message.mediaUrl && (
+              <a
+                className="message-attachment-trigger"
+                href={attachmentDownloadUrl(message.mediaUrl, attachmentName(message))}
+                download={attachmentName(message)}
+                aria-label={`${lang === 'fr' ? 'Télécharger' : 'Download'} : ${attachmentName(message)}`}
+                title={lang === 'fr' ? 'Télécharger' : 'Download'}
+                style={{ display: 'grid', placeItems: 'center', flex: '0 0 36px', minHeight: 40, borderRadius: 10, color: 'inherit' }}
+              >
+                <Icon name="download" size={19} style={{ opacity: 0.8 }} />
+              </a>
+            )}
           </div>
         )}
 
@@ -497,7 +589,7 @@ function MessageMenu({
       label: t.copy,
       color: 'var(--ink)',
       run: () => {
-        void navigator.clipboard?.writeText(message.text ?? message.mediaLabel ?? '').catch(() => {});
+        void navigator.clipboard?.writeText(message.text ?? message.docName ?? message.mediaLabel ?? '').catch(() => {});
         onClose();
         showToast(t.copiedMsg);
       },
@@ -803,16 +895,28 @@ function AttachSheet({ onClose, onPick }: { onClose: () => void; onPick: (item: 
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
+    if (file.size > 50 * 1024 * 1024) {
+      showToast(t.fileTooLarge);
+      return;
+    }
     setBusy(true);
     try {
       const uploaded = await uploadFile(file, meId, syncing);
-      if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+      if (syncing && uploaded.local) {
+        URL.revokeObjectURL(uploaded.url);
+        showToast(t.uploadErr);
+        return;
+      }
+      if (file.type.startsWith('image/')) {
         onPick({ kind: 'photo', mediaLabel: uploaded.label, mediaUrl: uploaded.url });
       } else {
-        onPick({ kind: 'doc', docName: file.name, docSize: fileSize(file.size), mediaUrl: uploaded.url });
+        onPick({ kind: 'doc', docName: file.name, docSize: fileSize(file.size), mediaLabel: uploaded.label, mediaUrl: uploaded.url });
       }
       showToast(t.sentOk);
       onClose();
+    } catch (error) {
+      console.error('facemash: attachment upload failed', error);
+      showToast(t.uploadErr);
     } finally {
       setBusy(false);
     }
@@ -822,7 +926,7 @@ function AttachSheet({ onClose, onPick }: { onClose: () => void; onPick: (item: 
     { icon: 'image', label: t.photoLib, accept: 'image/*' },
     { icon: 'movie', label: t.videoFile, accept: 'video/*' },
     { icon: 'photo_camera', label: t.camera, accept: 'image/*', capture: true },
-    { icon: 'description', label: t.document, accept: '*/*' },
+    { icon: 'description', label: t.document, accept: '' },
   ];
 
   return (
@@ -867,6 +971,7 @@ function AttachSheet({ onClose, onPick }: { onClose: () => void; onPick: (item: 
         >
           {busy ? t.uploading : t.attach}
         </h2>
+        <p style={{ margin: '-6px 0 14px', color: 'var(--ink3)', fontSize: 12.5 }}>{t.fileLimitHint}</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 9 }}>
           {items.map((item) => (
             <button
@@ -896,7 +1001,7 @@ function AttachSheet({ onClose, onPick }: { onClose: () => void; onPick: (item: 
         <input
           ref={picker}
           type="file"
-          accept={accept}
+          accept={accept || undefined}
           onChange={(e) => {
             void onFile(e.target.files?.[0]);
             e.target.value = '';
@@ -904,6 +1009,76 @@ function AttachSheet({ onClose, onPick }: { onClose: () => void; onPick: (item: 
           style={{ display: 'none' }}
         />
       </div>
+    </div>
+  );
+}
+
+function AttachmentPreviewDialog({ file, onClose }: { file: AttachmentPreviewData; onClose: () => void }) {
+  const { t } = useApp();
+  const panel = useDialog<HTMLDivElement>(onClose);
+  const type = file.mimeType.toLowerCase();
+  const mediaStyle = { display: 'block', maxWidth: '100%', maxHeight: 'min(68dvh, 720px)', margin: '0 auto', borderRadius: 12 };
+  const videoPreviewSupported = ['video/mp4', 'video/webm', 'video/ogg'].includes(type);
+  const preview = type.startsWith('image/') ? (
+    <img src={file.url} alt={file.name} style={mediaStyle} />
+  ) : videoPreviewSupported ? (
+    <video src={file.url} controls playsInline preload="metadata" style={{ ...mediaStyle, width: '100%' }} />
+  ) : type.startsWith('audio/') ? (
+    <audio src={file.url} controls preload="metadata" style={{ display: 'block', width: 'min(100%, 520px)', margin: '36px auto' }} />
+  ) : type === 'application/pdf' ? (
+    <iframe
+      title={`${t.preview} : ${file.name}`}
+      src={file.url}
+      style={{ width: '100%', height: 'min(68dvh, 720px)', border: 0, borderRadius: 12, background: '#fff' }}
+    />
+  ) : ['text/plain', 'text/csv', 'application/json', 'application/xml'].includes(type) ? (
+    <iframe
+      title={`${t.preview} : ${file.name}`}
+      src={file.url}
+      sandbox=""
+      style={{ width: '100%', height: 'min(68dvh, 720px)', border: 0, borderRadius: 12, background: '#fff' }}
+    />
+  ) : (
+    <div style={{ display: 'grid', minHeight: 220, placeContent: 'center', padding: 24, textAlign: 'center', color: 'var(--ink2)' }}>
+      <Icon name="description" size={38} color="var(--accent)" />
+      <p style={{ maxWidth: 420, margin: '14px auto 0', lineHeight: 1.55 }}>{t.previewUnavailable}</p>
+    </div>
+  );
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'grid', placeItems: 'center', padding: 12, background: 'oklch(0.08 0 0 / 0.82)', backdropFilter: 'blur(12px)' }}
+    >
+      <section
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${t.preview} : ${file.name}`}
+        tabIndex={-1}
+        onClick={(event) => event.stopPropagation()}
+        style={{ display: 'flex', flexDirection: 'column', width: 'min(100%, 900px)', maxHeight: '94dvh', minHeight: 0, overflow: 'hidden', border: '1px solid var(--line)', borderRadius: 20, background: 'var(--bg)', boxShadow: 'var(--shadow)' }}
+      >
+        <header style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>{file.name}</strong>
+            {file.size && <span style={{ display: 'block', marginTop: 2, color: 'var(--ink3)', fontSize: 12 }}>{file.size}</span>}
+          </span>
+          <a
+            className="message-attachment-trigger"
+            href={attachmentDownloadUrl(file.url, file.name)}
+            download={file.name}
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, minHeight: 42, padding: '0 12px', borderRadius: 12, background: 'var(--surface)', color: 'var(--ink)', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}
+          >
+            <Icon name="download" size={17} />
+            <span>{t.downloadFile}</span>
+          </a>
+          <button className="message-attachment-trigger" type="button" onClick={onClose} aria-label={t.close} style={{ display: 'grid', placeItems: 'center', width: 42, height: 42, flex: '0 0 42px', borderRadius: 12, background: 'var(--surface)', color: 'var(--ink)' }}>
+            <Icon name="close" size={18} />
+          </button>
+        </header>
+        <main style={{ minHeight: 0, overflow: 'auto', padding: 12 }}>{preview}</main>
+      </section>
     </div>
   );
 }
@@ -1228,6 +1403,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
   const [replyTo, setReplyTo] = useState<{ id: string; text: string } | null>(null);
   const [menuMessage, setMenuMessage] = useState<Message | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [attachmentPreview, setAttachmentPreview] = useState<AttachmentPreviewData | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [emojiTab, setEmojiTab] = useState<'emoji' | 'stickers' | 'gifs'>('emoji');
   const [voice, setVoice] = useState<{ id: string; progress: number } | null>(null);
@@ -1280,7 +1456,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
     const needle = search.trim().toLowerCase();
     if (!needle) return [] as string[];
     return messages
-      .filter((m) => (m.text ?? m.mediaLabel ?? '').toLowerCase().includes(needle))
+      .filter((m) => `${m.text ?? ''} ${m.docName ?? ''} ${m.mediaLabel ?? ''}`.toLowerCase().includes(needle))
       .map((m) => m.id);
   }, [messages, search]);
 
@@ -1844,7 +2020,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
                   isGroup={kind === 'group'}
                   onMenu={setMenuMessage}
                   onReply={(message) =>
-                    setReplyTo({ id: message.id, text: message.text ?? message.mediaLabel ?? '' })
+                    setReplyTo({ id: message.id, text: message.text ?? message.docName ?? message.mediaLabel ?? '' })
                   }
                   voiceProgress={voice?.id === row.message!.id ? voice.progress : 0}
                   onToggleVoice={(messageId) =>
@@ -1852,6 +2028,10 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
                   }
                   highlighted={matches.includes(row.message!.id)}
                   current={matches[matchIndex] === row.message!.id}
+                  onPreview={(message) => {
+                    const preview = attachmentPreviewData(message);
+                    if (preview) setAttachmentPreview(preview);
+                  }}
                 />
               );
             })}
@@ -2282,6 +2462,10 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
           onClose={() => setAttachOpen(false)}
           onPick={(item) => pushMessage(kind, id, item as Partial<Message> & { kind: Message['kind'] })}
         />
+      )}
+
+      {attachmentPreview && (
+        <AttachmentPreviewDialog file={attachmentPreview} onClose={() => setAttachmentPreview(null)} />
       )}
 
       {call && conversation && (

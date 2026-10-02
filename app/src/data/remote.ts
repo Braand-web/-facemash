@@ -655,10 +655,11 @@ export const remote = {
   /** Uploads to the public media bucket and returns the URL to store on the row. */
   uploadMedia: async (profileId: string, file: File): Promise<string | null> => {
     if (!supabase) return null;
-    const extension = file.name.split('.').pop() ?? 'bin';
+    const extension = file.name.match(/\.([a-zA-Z0-9]{1,16})$/)?.[1]?.toLowerCase() ?? 'bin';
     const path = `${profileId}/${crypto.randomUUID()}.${extension}`;
     const { error } = await supabase.storage.from('media').upload(path, file, {
       cacheControl: '31536000',
+      contentType: file.type || 'application/octet-stream',
       upsert: false,
     });
     if (error) {
