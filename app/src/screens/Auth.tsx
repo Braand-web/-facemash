@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icon } from '../components/Icon';
 import { Segmented } from '../components/ui';
 import { useApp } from '../store';
 import { demoMode, supabase } from '../lib/supabase';
 import { useLayout } from '../viewport';
+import { normalizeInviteCode, rememberInviteCode } from '../lib/invites.mjs';
 
 type Mode = 'login' | 'signup' | 'forgot';
 
@@ -39,19 +40,27 @@ function Hero({ compact }: { compact: boolean }) {
 export function Auth() {
   const { t, lang, signIn, data } = useApp();
   const { shellHeight, wide } = useLayout();
-  const [mode, setMode] = useState<Mode>('login');
+  const inviteCode = normalizeInviteCode(new URLSearchParams(window.location.search).get('invite'));
+  const [mode, setMode] = useState<Mode>(() => new URLSearchParams(window.location.search).get('mode') === 'signup' ? 'signup' : 'login');
   const [form, setForm] = useState({ name: '', username: '', email: '', password: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const [show, setShow] = useState(false);
 
+  useEffect(() => {
+    if (inviteCode) rememberInviteCode(inviteCode);
+  }, [inviteCode]);
+
   const signInWithGoogle = async () => {
     if (!supabase) return;
     setBusy(true);
     setError('');
     try {
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
+      if (inviteCode) rememberInviteCode(inviteCode);
+      const redirect = new URL('/', window.location.origin);
+      if (inviteCode) redirect.searchParams.set('invite', inviteCode);
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: redirect.toString() } });
       if (oauthError) throw oauthError;
     } catch (oauthError) {
       setError(oauthError instanceof Error ? oauthError.message : t.googleSignInError);
@@ -82,7 +91,7 @@ export function Auth() {
     setError('');
     if (supabase) {
       const result = mode === 'signup'
-        ? await supabase.auth.signUp({ email: form.email, password: form.password, options: { data: { name: form.name, username: form.username } } })
+        ? await supabase.auth.signUp({ email: form.email, password: form.password, options: { data: { name: form.name, username: form.username, ...(inviteCode ? { facemash_invite_code: inviteCode } : {}) } } })
         : await supabase.auth.signInWithPassword({ email: form.email, password: form.password });
       setBusy(false);
       if (result.error) { setError(result.error.message); return; }

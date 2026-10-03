@@ -2,8 +2,6 @@ name: Publish compatibility build to GitHub Pages
 
 # Legacy hash-router export. Demo fixtures are never enabled in this public build.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

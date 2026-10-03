@@ -886,8 +886,8 @@ function EphemeralSheet({
   );
 }
 
-function AttachSheet({ onClose, onPick }: { onClose: () => void; onPick: (item: Partial<Message> & { kind: Message['kind'] }) => void }) {
-  const { t, meId, syncing, showToast } = useApp();
+function AttachSheet({ onClose, onPick }: { onClose: () => void; onPick: (item: Partial<Message> & { kind: Message['kind'] }) => Promise<boolean> }) {
+  const { t, meId, syncing, offline, showToast } = useApp();
   const panel = useDialog<HTMLDivElement>(onClose);
   const picker = useRef<HTMLInputElement | null>(null);
   const [accept, setAccept] = useState('image/*');
@@ -895,6 +895,10 @@ function AttachSheet({ onClose, onPick }: { onClose: () => void; onPick: (item: 
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
+    if (syncing && offline) {
+      showToast(t.networkRequired);
+      return;
+    }
     if (file.size > 50 * 1024 * 1024) {
       showToast(t.fileTooLarge);
       return;
@@ -908,9 +912,11 @@ function AttachSheet({ onClose, onPick }: { onClose: () => void; onPick: (item: 
         return;
       }
       if (file.type.startsWith('image/')) {
-        onPick({ kind: 'photo', mediaLabel: uploaded.label, mediaUrl: uploaded.url });
+        const saved = await onPick({ kind: 'photo', mediaLabel: uploaded.label, mediaUrl: uploaded.url });
+        if (!saved) return;
       } else {
-        onPick({ kind: 'doc', docName: file.name, docSize: fileSize(file.size), mediaLabel: uploaded.label, mediaUrl: uploaded.url });
+        const saved = await onPick({ kind: 'doc', docName: file.name, docSize: fileSize(file.size), mediaLabel: uploaded.label, mediaUrl: uploaded.url });
+        if (!saved) return;
       }
       showToast(t.sentOk);
       onClose();

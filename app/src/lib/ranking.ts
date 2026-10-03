@@ -3,11 +3,9 @@ import type { Comment, Data, Post } from '../types';
 import type { UserState } from '../store';
 
 export const weights = {
-  recency: 0.3,
-  engagement: 0.26,
-  watch: 0.2,
-  completion: 0.12,
-  affinity: 0.12,
+  recency: 0.4,
+  engagement: 0.35,
+  affinity: 0.25,
 };
 
 export const commentCount = (comments: Record<string, Comment[]>, postId: string): number =>
@@ -32,15 +30,12 @@ export const score = (post: Post, data: Data, user: UserState): number => {
       20000,
     1,
   );
-  const watch = Math.min(post.watchSeconds / 30, 1);
-  const boost = user.interests.includes(post.category) ? 1.15 : 1;
+  const interestBoost = user.interests.includes(post.category) ? 0.12 : 0;
   return (
-    (weights.recency * recency +
-      weights.engagement * engagement +
-      weights.watch * watch +
-      weights.completion * post.completion +
-      weights.affinity * affinity(post.authorId, data.posts, user)) *
-    boost
+    weights.recency * recency +
+    weights.engagement * engagement +
+    weights.affinity * affinity(post.authorId, data.posts, user) +
+    interestBoost
   );
 };
 
@@ -55,7 +50,7 @@ export const visibleToMe = (post: Post, data: Data, user: UserState, meId: strin
   return true;
 };
 
-/** Feed ranking: newest-and-most-engaging first, minus everything out of reach. */
+/** Feed ranking favours freshness, explicit interactions, followed creators and interests. */
 export const rankedPosts = (data: Data, user: UserState, meId: string): Post[] =>
   data.posts
     .filter((p) => visibleToMe(p, data, user, meId))

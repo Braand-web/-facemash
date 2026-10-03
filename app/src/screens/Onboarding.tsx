@@ -4,8 +4,11 @@ import { useApp } from '../store';
 import { INTERESTS } from '../data/seed';
 import { initials as toInitials } from '../lib/format';
 import { useLayout } from '../viewport';
+import { useNavigate } from 'react-router-dom';
+import { InviteTools } from '../components/InviteTools';
 
 export function Onboarding() {
+  const navigate = useNavigate();
   const { t, me, data, user, onboardingStep, onboarding, setOnboarding, advanceOnboarding, toggleInterest, meId } = useApp();
   const { shellHeight } = useLayout();
   const step = onboardingStep;
@@ -53,9 +56,21 @@ export function Onboarding() {
         )}
 
         {step === 3 && (
-          <div style={{ paddingBottom: 26, marginInline: -16 }}>
-            {suggested.map((u) => <PersonRow key={u.id} userId={u.id} sub={u.bio} action={<FollowButton userId={u.id} />} />)}
-          </div>
+          suggested.length ? (
+            <div style={{ paddingBottom: 26, marginInline: -16 }}>
+              {suggested.map((u) => <PersonRow key={u.id} userId={u.id} sub={u.bio} action={<FollowButton userId={u.id} />} />)}
+            </div>
+          ) : (
+            <div style={{ paddingBottom: 22 }}>
+              <div className="card" style={{ margin: '0 0 14px', padding: 16, color: 'var(--ink2)', fontSize: 14, lineHeight: 1.55 }}>
+                {t.emptySuggestedUsers}
+              </div>
+              <InviteTools />
+              <button className="btn btn-outline btn-lg btn-block" onClick={() => { advanceOnboarding(true); navigate('/explore'); }}>
+                <Icon name="explore" size={19} /> {t.goExplore}
+              </button>
+            </div>
+          )
         )}
       </div>
 

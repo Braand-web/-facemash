@@ -15,10 +15,13 @@ export interface Prefs {
   accent: Accent;
   haptics: boolean;
   autoplay: boolean;
+  dataSaver: boolean;
 }
 
 const KEY = 'facemash.prefs';
-const defaults: Prefs = { accent: 'cobalt', haptics: true, autoplay: true };
+const prefersDataSaver = typeof navigator !== 'undefined' &&
+  Boolean((navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData);
+const defaults: Prefs = { accent: 'cobalt', haptics: true, autoplay: true, dataSaver: prefersDataSaver };
 
 const read = (): Prefs => {
   try {
@@ -27,6 +30,7 @@ const read = (): Prefs => {
       accent: ACCENTS.some((a) => a.key === saved.accent) ? (saved.accent as Accent) : defaults.accent,
       haptics: saved.haptics ?? defaults.haptics,
       autoplay: saved.autoplay ?? defaults.autoplay,
+      dataSaver: saved.dataSaver ?? defaults.dataSaver,
     };
   } catch {
     return defaults;

@@ -1,12 +1,70 @@
-name: Deploy to Cloudflare
+name: Deploy Facemash to Cloudflare
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: facemash-production
+  cancel-in-progress: false
+
 jobs:
+  migrate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PROJECT_REF: qsmeojbntbfoxjhwzbkv
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Supabase migration credentials
+        shell: bash
+        run: |
+          missing=()
+          [[ -n "$SUPABASE_ACCESS_TOKEN" ]] || missing+=(SUPABASE_ACCESS_TOKEN)
+          [[ -n "$SUPABASE_DB_PASSWORD" ]] || missing+=(SUPABASE_DB_PASSWORD)
+          if (( ${#missing[@]} )); then
+            printf 'Missing required migration secrets: %s\n' "${missing[*]}"
+            exit 1
+          fi
+
+      - uses: supabase/setup-cli@v3
+
+      - name: Link and guard the production migration history
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+          history="$(supabase migration list --linked)"
+          printf '%s\n' "$history"
+          differences="$(printf '%s\n' "$history" | awk -F '│' '
+            NF >= 2 {
+              local_version = $1
+              remote_version = $2
+              gsub(/[^0-9]/, "", local_version)
+              gsub(/[^0-9]/, "", remote_version)
+              if (local_version ~ /^[0-9]+$/ && remote_version == "") pending = pending " " local_version
+              if (remote_version ~ /^[0-9]+$/ && local_version == "") remote_only = remote_only " " remote_version
+            }
+            END { print "pending=" pending "; remote_only=" remote_only }
+          ')"
+          printf '%s\n' "$differences"
+          if [[ "$differences" != 'pending= 20261002120000; remote_only=' && "$differences" != 'pending=; remote_only=' ]]; then
+            echo 'Unexpected migration history. Review and reconcile it before production deployment.'
+            exit 1
+          fi
+          supabase db push --linked --dry-run
+          supabase --yes db push --linked
+
   deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: migrate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,10 +74,14 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           missing=()
           [[ -n "$CLOUDFLARE_API_TOKEN" ]] || missing+=(CLOUDFLARE_API_TOKEN)
           [[ -n "$CLOUDFLARE_ACCOUNT_ID" ]] || missing+=(CLOUDFLARE_ACCOUNT_ID)
+          [[ -n "$VITE_SUPABASE_URL" ]] || missing+=(VITE_SUPABASE_URL)
+          [[ -n "$VITE_SUPABASE_PUBLISHABLE_KEY" ]] || missing+=(VITE_SUPABASE_PUBLISHABLE_KEY_or_VITE_SUPABASE_ANON_KEY)
           if (( ${#missing[@]} )); then
             printf 'Missing required production secrets: %s\n' "${missing[*]}"
             exit 1
@@ -34,8 +96,14 @@ jobs:
       - run: npm ci
         working-directory: app
 
+      - run: npm test
+        working-directory: app
+
       - run: npm run build
         working-directory: app
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3

@@ -17,6 +17,7 @@ const Saved = lazy(() => import('./screens/Lists').then(({ Saved }) => ({ defaul
 const TagFeed = lazy(() => import('./screens/Lists').then(({ TagFeed }) => ({ default: TagFeed })));
 const PostDetail = lazy(() => import('./screens/PostDetail').then(({ PostDetail }) => ({ default: PostDetail })));
 const Settings = lazy(() => import('./screens/Settings').then(({ Settings }) => ({ default: Settings })));
+const InviteLanding = lazy(() => import('./screens/Invite').then(({ InviteLanding }) => ({ default: InviteLanding })));
 
 function StatusNotice({ title, body, action }: { title: string; body: string; action?: { label: string; onClick: () => void } }) {
   return (
@@ -62,7 +63,10 @@ export function AppRoutes() {
   if (!session) {
     return (
       <Suspense fallback={loadingFallback}>
-        <Auth />
+        <Routes>
+          <Route path="/invite/:code" element={<InviteLanding />} />
+          <Route path="*" element={<Auth />} />
+        </Routes>
       </Suspense>
     );
   }
@@ -89,6 +93,7 @@ export function AppRoutes() {
           <Route path="/tag/:tag" element={<TagFeed />} />
           <Route path="/post/:id" element={<PostDetail />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/invite/:code" element={<InviteLanding />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

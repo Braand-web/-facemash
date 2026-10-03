@@ -35,7 +35,7 @@ function CountRing({ value }: { value: number }) {
 }
 
 function Composer() {
-  const { t, composer, setComposer, closeComposer, publish, meId, me, syncing, showToast } = useApp();
+  const { t, composer, setComposer, closeComposer, publish, meId, me, syncing, offline, showToast } = useApp();
   const navigate = useNavigate();
   const trends = useTrends();
   const filePicker = useRef<HTMLInputElement | null>(null);
@@ -77,12 +77,20 @@ function Composer() {
   const addFiles = async (files: FileList | File[] | null, only?: 'video' | 'image') => {
     const list = Array.from(files ?? []).filter((f) => (only === 'video' ? f.type.startsWith('video/') : only === 'image' ? f.type.startsWith('image/') : /^(image|video)\//.test(f.type)));
     if (!list.length) return;
+    if (syncing && offline) {
+      showToast(t.networkRequired);
+      return;
+    }
     setUploading(true);
     try {
       const uploaded = await Promise.all(list.map((file) => uploadFile(file, meId, syncing)));
+      if (syncing && uploaded.some((item) => item.local)) {
+        uploaded.filter((item) => item.local).forEach((item) => URL.revokeObjectURL(item.url));
+        showToast(offline ? t.networkRequired : t.uploadErr);
+        return;
+      }
       const media = [...mediaRef.current, ...uploaded.map((u) => ({ label: u.label, ratio: u.ratio, url: u.url, video: u.video }))];
       setComposer({ media, kind: kindOf(media), error: '' });
-      if (uploaded.some((u) => u.local) && syncing) showToast(t.uploadErr);
     } finally {
       setUploading(false);
     }
@@ -111,7 +119,7 @@ function Composer() {
       height="min(94dvh, 860px)"
       z={70}
       right={
-        <button className="btn btn-primary btn-sm" onClick={() => publish(() => navigate('/following'))} disabled={composer.busy || empty}>
+          <button className="btn btn-primary btn-sm" onClick={() => void publish(() => navigate('/following'))} disabled={composer.busy || empty}>
           {composer.busy && <span className="spinner" />}
           {composer.editing ? t.save : t.publish}
         </button>

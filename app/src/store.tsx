@@ -13,6 +13,7 @@ import { loadProfileId, loadSnapshot, remote, remoteEnabled, subscribeRealtime }
 import { demoMode, supabase } from './lib/supabase';
 import { dict, type Dict } from './lib/i18n';
 import { mmss } from './lib/format';
+import { clearPendingInviteCode, normalizeInviteCode, readPendingInviteCode, rememberInviteCode } from './lib/invites.mjs';
 import { encodeStory, makeStory } from './lib/stories';
 import type {
   AppNotification,
@@ -188,11 +189,11 @@ interface AppValue {
   openComposer: () => void;
   closeComposer: () => void;
   editPost: (postId: string) => void;
-  publish: (onDone: () => void) => void;
+  publish: (onDone: () => void) => Promise<boolean>;
   deletePost: (postId: string) => void;
   /* messaging */
   sendMessage: (kind: ThreadKind, threadId: string, text: string, replyTo?: Message['replyTo']) => Promise<boolean>;
-  pushMessage: (kind: ThreadKind, threadId: string, extra: Partial<Message> & { kind: MessageKind }) => void;
+  pushMessage: (kind: ThreadKind, threadId: string, extra: Partial<Message> & { kind: MessageKind }) => Promise<boolean>;
   reactToMessage: (kind: ThreadKind, threadId: string, messageId: string, icon: string) => void;
   deleteMessage: (kind: ThreadKind, threadId: string, messageId: string) => void;
   openConversationWith: (userId: string) => string;
@@ -330,6 +331,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const { data: listener } = supabase.auth.onAuthStateChange((event, next) => {
       if (!active) return;
       if (next?.user) {
+        const metadataCode = normalizeInviteCode(next.user.user_metadata?.facemash_invite_code);
+        const redirectCode = normalizeInviteCode(new URLSearchParams(window.location.search).get('invite'));
+        const pendingCode = metadataCode ?? redirectCode;
+        if (pendingCode) rememberInviteCode(pendingCode);
         setLoading(true);
         setAccountError(null);
         setSession((prev) => (prev?.authId ? prev : { onboarded: true, authId: next.user.id }));
@@ -345,8 +350,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .getSession()
       .then(({ data }) => {
         if (!active) return;
-        const authId = data.session?.user.id;
+        const authUser = data.session?.user;
+        const authId = authUser?.id;
         if (authId) {
+          const metadataCode = normalizeInviteCode(authUser?.user_metadata?.facemash_invite_code);
+          const redirectCode = normalizeInviteCode(new URLSearchParams(window.location.search).get('invite'));
+          const pendingCode = metadataCode ?? redirectCode;
+          if (pendingCode) rememberInviteCode(pendingCode);
           setLoading(true);
           setSession((prev) => (prev?.authId ? prev : { onboarded: true, authId }));
         }
@@ -379,6 +389,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setAccountError('profile');
         setLoading(false);
         return;
+      }
+      const inviteCode = readPendingInviteCode();
+      if (inviteCode) {
+        const claimed = await remote.claimReferralCode(inviteCode);
+        if (claimed !== null) clearPendingInviteCode();
+        if (cancelled) return;
       }
       const snapshot = await loadSnapshot(profileId).catch(() => null);
       if (cancelled) return;
@@ -786,67 +802,76 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const publish = useCallback(
-    (onDone: () => void) => {
+    async (onDone: () => void): Promise<boolean> => {
       const draft = composerRef.current;
       if (!draft.text.trim() && !draft.media.length) {
         setComposerState((prev) => ({ ...prev, error: t.uploadErr }));
-        return;
+        return false;
+      }
+      if (syncing && offline) {
+        setComposerState((prev) => ({ ...prev, error: t.networkRequired }));
+        return false;
       }
       setComposerState((prev) => ({ ...prev, busy: true, error: '' }));
-      window.setTimeout(() => {
-        const current = composerRef.current;
-        if (!current.busy) return;
-        const tags = current.tags
-          .split(/[,\s]+/)
-          .filter(Boolean)
-          .map((x) => (x[0] === '#' ? x : '#' + x));
+      const current = draft;
+      const tags = current.tags
+        .split(/[,\s]+/)
+        .filter(Boolean)
+        .map((x) => (x[0] === '#' ? x : '#' + x));
 
-        if (current.editing) {
-          const existing = dataRef.current.posts.find((p) => p.id === current.editing);
-          if (existing) {
-            const updated: Post = {
-              ...existing,
-              text: current.text,
-              tags,
-              visibility: current.visibility,
-              media: current.media,
-              location: current.location,
-            };
-            setData((prev) => ({
-              ...prev,
-              posts: prev.posts.map((p) => (p.id === updated.id ? updated : p)),
-            }));
-            if (syncing) void remote.updatePost(updated);
-          }
-        } else {
-          const post: Post = {
-            id: newId(),
-            authorId: meId,
-            kind: current.kind,
-            text: current.text,
-            tags,
-            visibility: current.visibility,
-            location: current.location,
-            createdAt: Date.now(),
-            likes: 0,
-            reposts: 0,
-            shares: 0,
-            views: 0,
-            completion: current.kind === 'video' ? 0.5 : 0,
-            watchSeconds: 0,
-            category: user.interests[0] ?? 'lifestyle',
-            media: current.media,
-          };
-          setData((prev) => ({ ...prev, posts: [post, ...prev.posts] }));
-          if (syncing) void remote.createPost(post);
+      if (current.editing) {
+        const existing = dataRef.current.posts.find((p) => p.id === current.editing);
+        if (!existing) {
+          setComposerState((prev) => ({ ...prev, busy: false, error: t.uploadErr }));
+          return false;
         }
+        const updated: Post = {
+          ...existing,
+          text: current.text,
+          tags,
+          visibility: current.visibility,
+          media: current.media,
+          location: current.location,
+        };
+        const saved = !syncing || await remote.updatePost(updated);
+        if (!saved) {
+          setComposerState((prev) => ({ ...prev, busy: false, error: offline ? t.networkRequired : t.uploadErr }));
+          return false;
+        }
+        setData((prev) => ({ ...prev, posts: prev.posts.map((p) => p.id === updated.id ? updated : p) }));
+      } else {
+        const post: Post = {
+          id: newId(),
+          authorId: meId,
+          kind: current.kind,
+          text: current.text,
+          tags,
+          visibility: current.visibility,
+          location: current.location,
+          createdAt: Date.now(),
+          likes: 0,
+          reposts: 0,
+          shares: 0,
+          views: 0,
+          completion: 0,
+          watchSeconds: 0,
+          category: user.interests[0] ?? 'lifestyle',
+          media: current.media,
+        };
+        const saved = !syncing || await remote.createPost(post);
+        if (!saved) {
+          setComposerState((prev) => ({ ...prev, busy: false, error: offline ? t.networkRequired : t.uploadErr }));
+          return false;
+        }
+        setData((prev) => ({ ...prev, posts: [post, ...prev.posts] }));
+      }
 
-        setComposerState(emptyComposer());
-        showToast(t.published);
-        onDone();
-      }, 700);
+      setComposerState(emptyComposer());
+      showToast(t.published);
+      onDone();
+      return true;
     },
-    [meId, showToast, t, user.interests, syncing],
+    [meId, showToast, t, user.interests, syncing, offline],
   );
 
   const deletePost = useCallback(
@@ -891,10 +916,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const saved = await remote.addMessage(threadId, message);
       if (saved) return true;
       patchThread(kind, threadId, (messages) => messages.filter((item) => item.id !== message.id));
-      showToast(t.messageSendError);
+      showToast(offline ? t.networkRequired : t.messageSendError);
       return false;
     },
-    [patchThread, showToast, syncing, t],
+    [patchThread, showToast, syncing, offline, t],
   );
 
   const setMessageStatus = useCallback(
@@ -936,6 +961,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const sendMessage = useCallback(
     async (kind: ThreadKind, threadId: string, text: string, replyTo?: Message['replyTo']) => {
       if (!text.trim()) return false;
+      if (syncing && offline) {
+        showToast(t.networkRequired);
+        return false;
+      }
       const message: Message = {
         id: newId(),
         from: meId,
@@ -976,11 +1005,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }, 3700);
       return true;
     },
-    [cannedReply, meId, patchThread, persistMessage, setMessageStatus, syncing],
+    [cannedReply, meId, patchThread, persistMessage, setMessageStatus, syncing, offline, showToast, t],
   );
 
   const pushMessage = useCallback(
-    (kind: ThreadKind, threadId: string, extra: Partial<Message> & { kind: MessageKind }) => {
+    async (kind: ThreadKind, threadId: string, extra: Partial<Message> & { kind: MessageKind }) => {
+      if (syncing && offline) {
+        showToast(t.networkRequired);
+        return false;
+      }
       const message: Message = {
         id: newId(),
         from: meId,
@@ -990,13 +1023,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       patchThread(kind, threadId, (messages) => [...messages, message]);
       if (syncing) {
-        void persistMessage(kind, threadId, message);
-        return;
+        return persistMessage(kind, threadId, message);
       }
       window.setTimeout(() => setMessageStatus(kind, threadId, message.id, 'delivered'), 600);
       window.setTimeout(() => setMessageStatus(kind, threadId, message.id, 'read'), 1700);
+      return true;
     },
-    [meId, patchThread, persistMessage, setMessageStatus, syncing],
+    [meId, patchThread, persistMessage, setMessageStatus, syncing, offline, showToast, t],
   );
 
   const reactToMessage = useCallback(

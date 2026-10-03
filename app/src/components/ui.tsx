@@ -234,7 +234,7 @@ export function MediaFill({
 }) {
   if (item?.url) {
     if (item.video) return <AutoVideo src={item.url} autoplay={autoplay} muted={muted} />;
-    return <img src={item.url} alt={item.label} loading="lazy" draggable={false} />;
+    return <img src={item.url} alt={item.label} loading="lazy" decoding="async" draggable={false} />;
   }
   return (
     <span className="media-art" style={{ position: 'absolute', inset: 0, ['--h' as string]: hue } as CSSProperties}>
@@ -256,12 +256,12 @@ export function AutoVideo({
   onRef?: (el: HTMLVideoElement | null) => void;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
-  const { autoplay: allowed } = usePrefs();
+  const { autoplay: allowed, dataSaver } = usePrefs();
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    if (!autoplay || !allowed) {
+    if (!autoplay || !allowed || dataSaver) {
       el.pause();
       return;
     }
@@ -274,7 +274,7 @@ export function AutoVideo({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [autoplay, allowed]);
+  }, [autoplay, allowed, dataSaver]);
 
   return (
     <video
@@ -286,7 +286,8 @@ export function AutoVideo({
       muted={muted}
       loop
       playsInline
-      preload="metadata"
+      controls={dataSaver}
+      preload={dataSaver ? 'none' : 'metadata'}
     />
   );
 }

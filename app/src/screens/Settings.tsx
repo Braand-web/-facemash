@@ -7,6 +7,7 @@ import { useApp } from '../store';
 import { useInstall } from '../lib/install';
 import { ACCENTS, setPref, usePrefs } from '../lib/prefs';
 import { haptic } from '../lib/haptics';
+import { InviteTools } from '../components/InviteTools';
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -67,6 +68,8 @@ export function Settings() {
           <PersonRow userId={me.id} sub={`@${me.username}`} size={56} action={<button className="btn btn-outline btn-sm" onClick={() => navigate('/profile/me')}>{t.viewProfile}</button>} />
         </div>
 
+        <InviteTools counts />
+
         <Group title={t.appearance}>
           <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)' }}>
             <p style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 550 }}>{t.theme}</p>
@@ -91,6 +94,7 @@ export function Settings() {
           </div>
           <Row icon="language" title={t.language} onClick={toggleLang} right={<span style={{ color: 'var(--ink3)', fontSize: 14 }}>{lang === 'fr' ? 'Français' : 'English'}</span>} />
           <Row icon="play_circle" title={t.autoplay} hint={t.autoplayHint} role="switch" checked={prefs.autoplay} onClick={() => setPref('autoplay', !prefs.autoplay)} right={<Switch on={prefs.autoplay} />} />
+          <Row icon="device_mobile" title={t.dataSaver} hint={t.dataSaverHint} role="switch" checked={prefs.dataSaver} onClick={() => { const next = !prefs.dataSaver; setPref('dataSaver', next); if (next) setPref('autoplay', false); }} right={<Switch on={prefs.dataSaver} />} />
           <Row icon="vibrate" title={t.haptics} hint={t.hapticsHint} role="switch" checked={prefs.haptics} onClick={() => { setPref('haptics', !prefs.haptics); haptic('light'); }} right={<Switch on={prefs.haptics} />} last />
         </Group>
 

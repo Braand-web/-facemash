@@ -59,30 +59,28 @@ function ReelItem({ post, active, muted }: { post: Post; active: boolean; muted:
   const navigate = useNavigate();
   const { t, toggleLike, toggleSave, toggleRepost, meId, user } = useApp();
   const { openShare, openComments, openSheet } = useOverlays();
-  const { autoplay } = usePrefs();
+  const { autoplay, dataSaver } = usePrefs();
   const meta = usePostMeta(post);
   const { author } = meta;
-  const [paused, setPaused] = useState(false);
+  const textOnly = post.media.length === 0;
+  const media = post.media[0];
+  const [playbackOverride, setPlaybackOverride] = useState<{ postId: string; playing: boolean } | null>(null);
+  const manualPlayback = playbackOverride?.postId === post.id && playbackOverride.playing;
+  const paused = Boolean(media?.video && (playbackOverride?.postId === post.id ? !playbackOverride.playing : dataSaver || !autoplay));
   const [flash, setFlash] = useState<number>(0);
   const [burst, setBurst] = useState<{ key: number; x: number; y: number } | null>(null);
   const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [open, setOpen] = useState(false);
-  const textOnly = post.media.length === 0;
-  const media = post.media[0];
-
-  useEffect(() => {
-    if (!active) setPaused(false);
-  }, [active]);
-
   useEffect(() => {
     if (!video) return;
-    if (active && !paused && autoplay) void video.play().catch(() => {});
+    if (active && !paused && ((autoplay && !dataSaver) || manualPlayback)) void video.play().catch(() => {});
     else video.pause();
-  }, [video, active, paused, autoplay]);
+  }, [video, active, paused, autoplay, dataSaver, manualPlayback]);
 
   const onTap = useDoubleTap(
     () => {
-      setPaused((p) => !p);
+      const nextPaused = !(video?.paused ?? paused);
+      setPlaybackOverride({ postId: post.id, playing: !nextPaused });
       setFlash(Date.now());
     },
     (x, y) => {
@@ -100,9 +98,9 @@ function ReelItem({ post, active, muted }: { post: Post; active: boolean; muted:
   return (
     <section className="reel" aria-label={`${author.name} — ${post.text.slice(0, 60)}`}>
       <div className="media-art" style={{ position: 'absolute', inset: 0, ['--h' as string]: author.hue }} />
-      {!textOnly && media?.url && !media.video && <img src={media.url} alt={media.label} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} draggable={false} />}
+      {!textOnly && media?.url && !media.video && <img src={media.url} alt={media.label} loading={active ? 'eager' : 'lazy'} decoding="async" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} draggable={false} />}
       {!textOnly && media?.url && media.video && (
-        <video ref={setVideo} src={media.url} muted={muted} loop playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+        <video ref={setVideo} src={media.url} muted={muted} loop playsInline preload={dataSaver ? 'none' : 'metadata'} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
       )}
       {!textOnly && !media?.url && (
         <div style={{ position: 'absolute', inset: 0 }}>
@@ -119,7 +117,7 @@ function ReelItem({ post, active, muted }: { post: Post; active: boolean; muted:
       <div className="reel__scrim" />
 
       <button aria-label={t.playPause} onClick={onTap} style={{ position: 'absolute', inset: 0, zIndex: 2, cursor: 'pointer' }} />
-      {active && paused && flash > 0 && (
+      {active && paused && media?.video && (
         <span key={flash} className="reel__flash">
           <Icon name="play_arrow" size={40} fill={1} />
         </span>

@@ -36,6 +36,8 @@ Nouveautés côté produit, toutes compatibles avec le schéma Supabase existant
   des photos avant envoi.
 - **Notifications** groupées par période avec filtres.
 - Préférences d'appareil : couleur d'accent, lecture automatique, retour haptique.
+- Invitations personnelles partageables et attribution facultative des nouvelles inscriptions.
+- Mode économie de données : vidéos à la demande, sans lecture automatique.
 
 ## Modes
 
@@ -55,11 +57,14 @@ row or nothing.
 `wrangler.jsonc` sert `dist/` en assets statiques avec repli SPA sur `index.html`.
 
 - Depuis votre machine : `npx wrangler login` puis `npm run deploy`.
-- En CI : `.github/workflows/deploy.yml` build et déploie à chaque push sur `main`.
-  Secrets à définir dans GitHub → Settings → Secrets and variables → Actions :
-  `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `VITE_SUPABASE_URL`,
-  `VITE_SUPABASE_ANON_KEY`. Sans le token Cloudflare, l'étape de déploiement est
-  simplement sautée.
+- En CI : `.github/workflows/deploy.yml` vérifie d'abord l'historique des migrations,
+  applique uniquement la migration attendue, lance les tests et le build, puis déploie
+  le Worker Cloudflare. Une divergence d'historique ou un secret manquant arrête le flux.
+- Secrets GitHub Actions requis : `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`,
+  `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `VITE_SUPABASE_URL` et l'un de
+  `VITE_SUPABASE_PUBLISHABLE_KEY` ou `VITE_SUPABASE_ANON_KEY`.
+- L'ancien workflow Pages reste disponible en déclenchement manuel uniquement ; il ne
+  publie plus automatiquement sur `gh-pages` à chaque push.
 
 Les variables `VITE_*` sont intégrées au bundle au moment du build : il faut donc
 re-déployer après les avoir changées.

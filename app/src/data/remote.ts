@@ -400,6 +400,63 @@ export function subscribeRealtime(profileId: string, handlers: RealtimeHandlers)
 }
 
 export const remote = {
+  resolveInviteCode: async (code: string): Promise<{ name: string | null; username: string | null; isPublic: boolean } | null> => {
+    if (!supabase) return null;
+    try {
+      const { data, error } = await supabase.rpc('resolve_invite_code', { invite_code: code });
+      if (error) throw error;
+      const row = (Array.isArray(data) ? data[0] : data) as Row | null;
+      return row ? {
+        name: (row.name as string | null) ?? null,
+        username: (row.username as string | null) ?? null,
+        isPublic: Boolean(row.is_public),
+      } : null;
+    } catch (error) {
+      console.error('facemash: resolveInviteCode failed', error);
+      return null;
+    }
+  },
+
+  claimReferralCode: async (code: string): Promise<boolean | null> => {
+    if (!supabase) return null;
+    try {
+      const { data, error } = await supabase.rpc('claim_referral', { invite_code: code });
+      if (error) throw error;
+      return data === true;
+    } catch (error) {
+      console.error('facemash: claimReferralCode failed', error);
+      return null;
+    }
+  },
+
+  myInviteCode: async (): Promise<string | null> => {
+    if (!supabase) return null;
+    try {
+      const { data, error } = await supabase.rpc('my_invite_code');
+      if (error) throw error;
+      return typeof data === 'string' ? data : null;
+    } catch (error) {
+      console.error('facemash: myInviteCode failed', error);
+      return null;
+    }
+  },
+
+  myReferralCounts: async (): Promise<{ registered: number; onboarded: number } | null> => {
+    if (!supabase) return null;
+    try {
+      const { data, error } = await supabase.rpc('my_referral_counts');
+      if (error) throw error;
+      const row = (Array.isArray(data) ? data[0] : data) as Row | null;
+      return row ? {
+        registered: Number(row.registered_count ?? 0),
+        onboarded: Number(row.onboarded_count ?? 0),
+      } : null;
+    } catch (error) {
+      console.error('facemash: myReferralCounts failed', error);
+      return null;
+    }
+  },
+
   setFlag: (
     name: 'likes' | 'saves' | 'reposts',
     profileId: string,
@@ -467,66 +524,71 @@ export const remote = {
       }),
     ),
 
-  createPost: async (post: Post) => {
-    if (!supabase) return;
-    const { error } = await table('posts').insert({
-      id: post.id,
-      author_id: post.authorId,
-      kind: post.kind,
-      text: post.text,
-      tags: post.tags,
-      visibility: post.visibility,
-      location: post.location ?? null,
-      completion: post.completion,
-      watch_seconds: post.watchSeconds,
-      category: post.category,
-    });
-    if (error) {
+  createPost: async (post: Post): Promise<boolean> => {
+    if (!supabase || post.media.some((media) => media.url?.startsWith('blob:'))) return false;
+    try {
+      const { error } = await table('posts').insert({
+        id: post.id,
+        author_id: post.authorId,
+        kind: post.kind,
+        text: post.text,
+        tags: post.tags,
+        visibility: post.visibility,
+        location: post.location ?? null,
+        completion: post.completion,
+        watch_seconds: post.watchSeconds,
+        category: post.category,
+      });
+      if (error) {
+        console.error('facemash: createPost failed', error);
+        return false;
+      }
+      if (post.media.length) {
+        const mediaSaved = await run('createPost media', () =>
+          table('post_media').insert(
+            post.media.map((media, position) => ({
+              post_id: post.id,
+              position,
+              label: media.label,
+              ratio: media.ratio,
+              url: media.url ?? null,
+              video: !!media.video,
+            })),
+          ),
+        );
+        if (!mediaSaved) {
+          await run('createPost rollback', () => table('posts').delete().eq('id', post.id));
+          return false;
+        }
+      }
+      return true;
+    } catch (error) {
       console.error('facemash: createPost failed', error);
-      return;
-    }
-    if (post.media.length) {
-      await run('createPost media', () =>
-        table('post_media').insert(
-          post.media.map((media, position) => ({
-            post_id: post.id,
-            position,
-            label: media.label,
-            ratio: media.ratio,
-            url: media.url ?? null,
-            video: !!media.video,
-          })),
-        ),
-      );
+      return false;
     }
   },
 
-  updatePost: async (post: Post) => {
-    if (!supabase) return;
-    await run('updatePost', () =>
-      table('posts')
-        .update({
-          text: post.text,
-          tags: post.tags,
-          visibility: post.visibility,
-          location: post.location ?? null,
-        })
-        .eq('id', post.id),
-    );
-    await run('updatePost media clear', () => table('post_media').delete().eq('post_id', post.id));
-    if (post.media.length) {
-      await run('updatePost media', () =>
-        table('post_media').insert(
-          post.media.map((media, position) => ({
-            post_id: post.id,
-            position,
-            label: media.label,
-            ratio: media.ratio,
-            url: media.url ?? null,
-            video: !!media.video,
-          })),
-        ),
-      );
+  updatePost: async (post: Post): Promise<boolean> => {
+    if (!supabase || post.media.some((media) => media.url?.startsWith('blob:'))) return false;
+    try {
+      const { data, error } = await supabase.rpc('update_post_with_media', {
+        target_post: post.id,
+        post_text: post.text,
+        post_tags: post.tags,
+        post_visibility: post.visibility,
+        post_location: post.location ?? null,
+        media_items: post.media.map((media) => ({
+          label: media.label,
+          ratio: media.ratio,
+          url: media.url ?? null,
+          video: Boolean(media.video),
+        })),
+      });
+      if (error) throw error;
+      return data === true;
+    } catch (error) {
+      console.error('facemash: updatePost failed', error);
+      return false;
     }
   },
 
