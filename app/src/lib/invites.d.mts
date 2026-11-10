@@ -1,7 +1,17 @@
 export const PENDING_INVITE_KEY: string;
+export const PENDING_GROUP_INVITE_KEY: string;
+export const PENDING_CHANNEL_INVITE_KEY: string;
 export function normalizeInviteCode(value: unknown): string | null;
+export function normalizeGroupInviteToken(value: unknown): string | null;
+export function normalizeChannelInviteToken(value: unknown): string | null;
 export function invitePath(value: string): string | null;
 export function inviteUrl(value: string, origin: string): string | null;
 export function rememberInviteCode(value: string, storage?: Storage): boolean;
+export function rememberGroupInviteToken(value: string, storage?: Storage): boolean;
+export function rememberChannelInviteToken(value: string, storage?: Storage): boolean;
 export function readPendingInviteCode(storage?: Storage): string | null;
+export function readPendingGroupInviteToken(storage?: Storage): string | null;
+export function readPendingChannelInviteToken(storage?: Storage): string | null;
 export function clearPendingInviteCode(storage?: Storage): void;
+export function clearPendingGroupInviteToken(storage?: Storage): void;
+export function clearPendingChannelInviteToken(storage?: Storage): void;

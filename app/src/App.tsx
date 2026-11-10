@@ -18,6 +18,8 @@ const TagFeed = lazy(() => import('./screens/Lists').then(({ TagFeed }) => ({ de
 const PostDetail = lazy(() => import('./screens/PostDetail').then(({ PostDetail }) => ({ default: PostDetail })));
 const Settings = lazy(() => import('./screens/Settings').then(({ Settings }) => ({ default: Settings })));
 const InviteLanding = lazy(() => import('./screens/Invite').then(({ InviteLanding }) => ({ default: InviteLanding })));
+const GroupInviteLanding = lazy(() => import('./screens/Invite').then(({ GroupInviteLanding }) => ({ default: GroupInviteLanding })));
+const ChannelInviteLanding = lazy(() => import('./screens/Invite').then(({ ChannelInviteLanding }) => ({ default: ChannelInviteLanding })));
 
 function StatusNotice({ title, body, action }: { title: string; body: string; action?: { label: string; onClick: () => void } }) {
   return (
@@ -65,6 +67,8 @@ export function AppRoutes() {
       <Suspense fallback={loadingFallback}>
         <Routes>
           <Route path="/invite/:code" element={<InviteLanding />} />
+          <Route path="/join/group/:token" element={<GroupInviteLanding />} />
+          <Route path="/join/channel/:token" element={<ChannelInviteLanding />} />
           <Route path="*" element={<Auth />} />
         </Routes>
       </Suspense>
@@ -94,6 +98,8 @@ export function AppRoutes() {
           <Route path="/post/:id" element={<PostDetail />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/invite/:code" element={<InviteLanding />} />
+          <Route path="/join/group/:token" element={<GroupInviteLanding />} />
+          <Route path="/join/channel/:token" element={<ChannelInviteLanding />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

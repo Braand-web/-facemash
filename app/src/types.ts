@@ -28,6 +28,10 @@ export interface User {
   location: string;
   followers: number;
   following: number;
+  /** Short-lived signed URL for the private avatar object, when one is set. */
+  avatarUrl?: string;
+  /** Private Storage object path; never a public URL. */
+  avatarPath?: string;
   /** Private accounts hide their posts from everyone who does not follow them. */
   isPrivate?: boolean;
 }
@@ -87,6 +91,8 @@ export interface Message {
   sharedPostId?: string;
   sharedText?: string;
   mediaUrl?: string;
+  /** Storage path for private conversation media; mediaUrl is only a signed URL. */
+  mediaPath?: string;
 }
 
 export interface Conversation {
@@ -94,6 +100,7 @@ export interface Conversation {
   userId: string;
   unread: number;
   messages: Message[];
+  hasMore?: boolean;
   /** 0 keeps messages forever; otherwise they disappear after this many seconds. */
   ephemeralSeconds?: number;
 }
@@ -103,15 +110,36 @@ export interface GroupMember {
   role: Role;
 }
 
+export interface GroupSettingsPatch {
+  name?: string;
+  description?: string;
+  /** `undefined` keeps the current image, `null` removes it. */
+  avatar?: File | null;
+  invitePolicy?: 'admins' | 'members';
+  approvalRequired?: boolean;
+  notificationsEnabled?: boolean;
+  postingMode?: 'all' | 'admins';
+  slowModeSeconds?: number;
+}
+
 export interface Group {
   id: string;
   name: string;
   description: string;
   hue: number;
+  avatarPath?: string;
+  avatarUrl?: string;
+  invitePolicy?: 'admins' | 'members';
+  approvalRequired?: boolean;
+  notificationsEnabled?: boolean;
+  postingMode?: 'all' | 'admins';
+  slowModeSeconds?: number;
   unread: number;
   members: GroupMember[];
   messages: Message[];
   ephemeralSeconds?: number;
+  hasMore?: boolean;
+  joinRequests?: { id: string; userId: string; createdAt: number }[];
 }
 
 export interface ChannelPost {
@@ -121,6 +149,7 @@ export interface ChannelPost {
   views: number;
   reactions: Record<string, number>;
   media: MediaItem[];
+  authorId?: string;
 }
 
 export interface Channel {
@@ -129,9 +158,23 @@ export interface Channel {
   slug: string;
   description: string;
   hue: number;
+  avatarPath?: string;
+  avatarUrl?: string;
   subscribers: number;
   subscribed: boolean;
+  ownerProfileId?: string;
+  adminProfileIds?: string[];
+  isPrivate?: boolean;
+  linkedThreadId?: string;
+  joinRequests?: { id: string; profileId: string; createdAt: number }[];
   posts: ChannelPost[];
+}
+
+export interface ChannelSettingsPatch {
+  name?: string;
+  description?: string;
+  /** `undefined` keeps the current image, `null` removes it. */
+  avatar?: File | null;
 }
 
 export type NotificationKind =

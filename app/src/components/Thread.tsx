@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Icon } from './Icon';
+import { Avatar, Icon } from './Icon';
 import { mediaTone } from '../lib/mediaTone';
 import { useApp } from '../store';
+import { channelInviteUrl, groupInviteUrl, shareLink } from '../lib/share';
 import { useLayout } from '../viewport';
 import { useDraft } from '../lib/drafts';
 import { useDialog } from '../lib/dialog';
-import { fileSize, uploadFile } from '../lib/upload';
+import { fileSize, uploadThreadFile } from '../lib/upload';
 import { dayLabel, fmt, initials as toInitials, mmss, recordingBars, rel, voiceBars } from '../lib/format';
-import type { Message, ThreadKind } from '../types';
+import type { Group, GroupSettingsPatch, Message, ThreadKind } from '../types';
 
 const CHAT_BG = 'var(--chat-bg)';
 const QUICK_REACTIONS = ['\u{1F44D}', '❤️', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}'];
@@ -151,8 +152,6 @@ function MessageBubble({
   isGroup,
   onMenu,
   onReply,
-  voiceProgress,
-  onToggleVoice,
   highlighted,
   current,
   onPreview,
@@ -161,8 +160,6 @@ function MessageBubble({
   isGroup: boolean;
   onMenu: (message: Message) => void;
   onReply: (message: Message) => void;
-  voiceProgress: number;
-  onToggleVoice: (id: string) => void;
   /** Matches the in-thread search. */
   highlighted?: boolean;
   /** The match the viewer is currently on. */
@@ -174,6 +171,9 @@ function MessageBubble({
   const mine = message.from === meId;
   const author = userById(message.from);
   const [swipe, setSwipe] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const [audioProgress, setAudioProgress] = useState(0);
   const pointer = useRef<{ x: number; dx: number } | null>(null);
   const longPress = useRef<number | undefined>(undefined);
 
@@ -248,7 +248,7 @@ function MessageBubble({
             background: `oklch(0.8 0.07 ${author.hue})`,
           }}
         >
-          {toInitials(author.name)}
+          {author.avatarUrl ? <img src={author.avatarUrl} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} /> : toInitials(author.name)}
         </span>
       )}
       <div
@@ -355,6 +355,7 @@ function MessageBubble({
         )}
 
         {message.kind === 'voice' && (
+          <>
           <div
             style={{
               display: 'flex',
@@ -366,7 +367,14 @@ function MessageBubble({
             }}
           >
             <button
-              onClick={() => onToggleVoice(message.id)}
+              onClick={() => {
+                const audio = audioRef.current;
+                if (!audio || !message.mediaUrl) return;
+                if (audio.paused) void audio.play().catch(() => setAudioPlaying(false));
+                else audio.pause();
+              }}
+              disabled={!message.mediaUrl}
+              aria-label={audioPlaying ? 'Mettre la note vocale en pause' : 'Lire la note vocale'}
               style={{
                 width: 32,
                 height: 32,
@@ -378,7 +386,7 @@ function MessageBubble({
                 color: 'inherit',
               }}
             >
-              <Icon name={voiceProgress > 0 ? 'pause' : 'play_arrow'} size={19} fill={1} />
+              <Icon name={audioPlaying ? 'pause' : 'play_arrow'} size={19} fill={1} />
             </button>
             <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 2, height: 26 }}>
               {bars.map((h, i) => (
@@ -390,7 +398,7 @@ function MessageBubble({
                     height: h,
                     display: 'block',
                     background:
-                      i / (bars.length - 1) <= voiceProgress
+                      i / (bars.length - 1) <= audioProgress
                         ? mine
                           ? 'var(--accentInk)'
                           : 'var(--accent)'
@@ -405,6 +413,20 @@ function MessageBubble({
               {(message.mediaLabel ?? '').split('·').pop()?.trim() || '0:12'}
             </span>
           </div>
+          <audio
+            ref={audioRef}
+            src={message.mediaUrl}
+            preload="none"
+            onPlay={() => setAudioPlaying(true)}
+            onPause={() => setAudioPlaying(false)}
+            onEnded={() => { setAudioPlaying(false); setAudioProgress(0); }}
+            onTimeUpdate={(event) => {
+              const audio = event.currentTarget;
+              setAudioProgress(audio.duration ? audio.currentTime / audio.duration : 0);
+            }}
+            style={{ display: 'none' }}
+          />
+          </>
         )}
 
         {message.kind === 'doc' && (
@@ -886,7 +908,7 @@ function EphemeralSheet({
   );
 }
 
-function AttachSheet({ onClose, onPick }: { onClose: () => void; onPick: (item: Partial<Message> & { kind: Message['kind'] }) => Promise<boolean> }) {
+function AttachSheet({ threadId, onClose, onPick }: { threadId: string; onClose: () => void; onPick: (item: Partial<Message> & { kind: Message['kind'] }) => Promise<boolean> }) {
   const { t, meId, syncing, offline, showToast } = useApp();
   const panel = useDialog<HTMLDivElement>(onClose);
   const picker = useRef<HTMLInputElement | null>(null);
@@ -905,17 +927,17 @@ function AttachSheet({ onClose, onPick }: { onClose: () => void; onPick: (item: 
     }
     setBusy(true);
     try {
-      const uploaded = await uploadFile(file, meId, syncing);
+      const uploaded = await uploadThreadFile(file, threadId, meId, syncing);
       if (syncing && uploaded.local) {
         URL.revokeObjectURL(uploaded.url);
         showToast(t.uploadErr);
         return;
       }
       if (file.type.startsWith('image/')) {
-        const saved = await onPick({ kind: 'photo', mediaLabel: uploaded.label, mediaUrl: uploaded.url });
+        const saved = await onPick({ kind: 'photo', mediaLabel: uploaded.label, mediaUrl: uploaded.url, mediaPath: uploaded.storagePath });
         if (!saved) return;
       } else {
-        const saved = await onPick({ kind: 'doc', docName: file.name, docSize: fileSize(file.size), mediaLabel: uploaded.label, mediaUrl: uploaded.url });
+        const saved = await onPick({ kind: 'doc', docName: file.name, docSize: fileSize(file.size), mediaLabel: uploaded.label, mediaUrl: uploaded.url, mediaPath: uploaded.storagePath });
         if (!saved) return;
       }
       showToast(t.sentOk);
@@ -1089,7 +1111,7 @@ function AttachmentPreviewDialog({ file, onClose }: { file: AttachmentPreviewDat
   );
 }
 
-function CallOverlay({
+export function CallOverlay({
   kind,
   userId,
   seconds,
@@ -1279,10 +1301,160 @@ function CallOverlay({
   );
 }
 
+function GroupSettingsSheet({
+  group,
+  owner,
+  onClose,
+  onSave,
+  onCloseGroup,
+}: {
+  group: Group;
+  owner: boolean;
+  onClose: () => void;
+  onSave: (patch: GroupSettingsPatch) => Promise<boolean>;
+  onCloseGroup: () => Promise<boolean>;
+}) {
+  const { lang } = useApp();
+  const panel = useDialog<HTMLDivElement>(onClose);
+  const [name, setName] = useState(group.name);
+  const [description, setDescription] = useState(group.description);
+  const [invitePolicy, setInvitePolicy] = useState<'admins' | 'members'>(group.invitePolicy ?? 'admins');
+  const [approvalRequired, setApprovalRequired] = useState(group.approvalRequired ?? false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(group.notificationsEnabled ?? true);
+  const [postingMode, setPostingMode] = useState<'all' | 'admins'>(group.postingMode ?? 'all');
+  const [slowModeSeconds, setSlowModeSeconds] = useState(group.slowModeSeconds ?? 0);
+  const [avatar, setAvatar] = useState<File | null>(null);
+  const [avatarChanged, setAvatarChanged] = useState(false);
+  const [removeAvatar, setRemoveAvatar] = useState(false);
+  const [preview, setPreview] = useState(group.avatarUrl);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!avatar) {
+      setPreview(removeAvatar ? undefined : group.avatarUrl);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(avatar);
+    setPreview(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [avatar, group.avatarUrl, removeAvatar]);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    const saved = await onSave({
+      name,
+      description,
+      invitePolicy,
+      approvalRequired,
+      notificationsEnabled,
+      postingMode,
+      slowModeSeconds,
+      ...(avatarChanged ? { avatar: removeAvatar ? null : avatar } : {}),
+    });
+    setSaving(false);
+    if (saved) onClose();
+  };
+
+  const title = lang === 'fr' ? 'Paramètres du groupe' : 'Group settings';
+  const labelStyle: CSSProperties = { display: 'grid', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--ink2)' };
+  const fieldStyle: CSSProperties = { width: '100%', minHeight: 42, padding: '10px 12px', borderRadius: 11, border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)', font: 'inherit' };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 90, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: 12, background: 'oklch(0.08 0.01 270 / 0.62)' }}>
+      <div ref={panel} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} onClick={(event) => event.stopPropagation()} style={{ width: 'min(100%, 540px)', maxHeight: 'min(88dvh, 760px)', overflow: 'auto', borderRadius: 22, background: 'var(--bg)', border: '1px solid var(--line)', boxShadow: 'var(--shadow)', padding: '20px 18px calc(18px + env(safe-area-inset-bottom))' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+          <Avatar hue={group.hue} initials={toInitials(name || group.name)} size={54} radius="16px" src={preview} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <strong style={{ display: 'block', fontSize: 17 }}>{title}</strong>
+            <span style={{ color: 'var(--ink3)', fontSize: 12.5 }}>{group.members.length} {lang === 'fr' ? 'membres' : 'members'}</span>
+          </div>
+          <button type="button" className="icon-btn" aria-label={lang === 'fr' ? 'Fermer' : 'Close'} onClick={onClose}><Icon name="close" size={20} /></button>
+        </div>
+        <form onSubmit={(event) => void submit(event)} style={{ display: 'grid', gap: 14 }}>
+          <label style={labelStyle}>{lang === 'fr' ? 'Photo du groupe' : 'Group photo'}
+            <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { setAvatar(event.target.files?.[0] ?? null); setAvatarChanged(!!event.target.files?.[0]); setRemoveAvatar(false); }} />
+          </label>
+          {(preview || group.avatarPath) && <button type="button" className="link" onClick={() => { setAvatar(null); setAvatarChanged(true); setRemoveAvatar(true); }}>{lang === 'fr' ? 'Retirer la photo' : 'Remove photo'}</button>}
+          <label style={labelStyle}>{lang === 'fr' ? 'Nom' : 'Name'}
+            <input style={fieldStyle} required maxLength={50} value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <label style={labelStyle}>{lang === 'fr' ? 'Description' : 'Description'}
+            <textarea style={{ ...fieldStyle, minHeight: 84, resize: 'vertical' }} maxLength={500} value={description} onChange={(event) => setDescription(event.target.value)} />
+          </label>
+          <label style={labelStyle}>{lang === 'fr' ? 'Qui peut inviter ?' : 'Who can invite?'}
+            <select style={fieldStyle} value={invitePolicy} onChange={(event) => setInvitePolicy(event.target.value as 'admins' | 'members')}>
+              <option value="admins">{lang === 'fr' ? 'Admins uniquement' : 'Admins only'}</option>
+              <option value="members">{lang === 'fr' ? 'Tous les membres' : 'All members'}</option>
+            </select>
+          </label>
+          <label style={labelStyle}>{lang === 'fr' ? 'Qui peut publier ?' : 'Who can post?'}
+            <select style={fieldStyle} value={postingMode} onChange={(event) => setPostingMode(event.target.value as 'all' | 'admins')}>
+              <option value="all">{lang === 'fr' ? 'Tous les membres' : 'All members'}</option>
+              <option value="admins">{lang === 'fr' ? 'Admins uniquement' : 'Admins only'}</option>
+            </select>
+          </label>
+          <label style={labelStyle}>{lang === 'fr' ? 'Mode lent' : 'Slow mode'}
+            <select style={fieldStyle} value={slowModeSeconds} onChange={(event) => setSlowModeSeconds(Number(event.target.value))}>
+              {[0, 10, 30, 60, 300].map((seconds) => <option key={seconds} value={seconds}>{seconds === 0 ? (lang === 'fr' ? 'Désactivé' : 'Off') : `${seconds} s`}</option>)}
+            </select>
+          </label>
+          {[
+            [approvalRequired, setApprovalRequired, lang === 'fr' ? 'Approuver les demandes d’accès' : 'Approve join requests'],
+            [notificationsEnabled, setNotificationsEnabled, lang === 'fr' ? 'Notifications activées pour le groupe' : 'Notifications enabled for this group'],
+          ].map(([checked, setter, label]) => (
+            <label key={String(label)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0', color: 'var(--ink2)', fontSize: 13.5 }}>
+              <input type="checkbox" checked={checked as boolean} onChange={(event) => (setter as (value: boolean) => void)(event.target.checked)} />{label as string}
+            </label>
+          ))}
+          <button className="btn btn-primary" type="submit" disabled={!name.trim() || saving}>{saving ? (lang === 'fr' ? 'Enregistrement…' : 'Saving…') : (lang === 'fr' ? 'Enregistrer' : 'Save changes')}</button>
+        </form>
+        {owner && <button type="button" className="btn btn-outline" onClick={async () => {
+          const accepted = window.confirm(lang === 'fr' ? 'Fermer définitivement ce groupe ? Les membres ne pourront plus y accéder.' : 'Close this group? Members will no longer be able to access it.');
+          if (accepted && await onCloseGroup()) onClose();
+        }} style={{ width: '100%', marginTop: 10, color: 'var(--danger)' }}>{lang === 'fr' ? 'Fermer le groupe' : 'Close group'}</button>}
+      </div>
+    </div>
+  );
+}
+
 function ChannelView({ channelId }: { channelId: string }) {
-  const { data, t, lang, reactToChannelPost, showToast } = useApp();
+  const navigate = useNavigate();
+  const { data, user, t, lang, meId, userById, syncing, reactToChannelPost, createChannelPost, createChannelInvite, revokeChannelInvites, setChannelAdmin, closeCommunity, updateChannelSettings, linkChannelDiscussion, joinChannelDiscussion, resolveChannelJoinRequest, reportCommunity, showToast } = useApp();
+  const [draft, setDraft] = useState('');
+  const [publishing, setPublishing] = useState(false);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [discussionBusy, setDiscussionBusy] = useState(false);
+  const [adminCandidate, setAdminCandidate] = useState('');
   const channel = data.channels.find((c) => c.id === channelId);
   if (!channel) return null;
+  const canPublish = channel.ownerProfileId === meId || channel.adminProfileIds?.includes(meId) === true;
+  const isOwner = channel.ownerProfileId === meId;
+  const adminIds = channel.adminProfileIds ?? [];
+  const adminCandidates = data.users.filter((person) => person.id !== channel.ownerProfileId && !adminIds.includes(person.id) && !user.blocked[person.id]);
+  const shareChannelInvite = async (approvalRequired: boolean) => {
+    if (inviteBusy) return;
+    setInviteBusy(true);
+    const token = await createChannelInvite(channel.id, approvalRequired);
+    setInviteBusy(false);
+    if (!token) return;
+    const result = await shareLink({
+      title: channel.name,
+      text: lang === 'fr' ? `Rejoins le canal « ${channel.name} » sur Facemash` : `Join the “${channel.name}” channel on Facemash`,
+      url: channelInviteUrl(token),
+    });
+    if (result === 'copied') showToast(t.copied);
+    else if (result === 'failed') showToast(t.messageSendError);
+  };
+  const revokeChannelInviteLinks = async () => {
+    const confirmed = window.confirm(lang === 'fr' ? 'Révoquer tous les liens d’invitation actifs ?' : 'Revoke all active invitation links?');
+    if (confirmed && await revokeChannelInvites(channel.id)) showToast(lang === 'fr' ? 'Les liens actifs ont été révoqués.' : 'Active links were revoked.');
+  };
+  const closeCurrentChannel = async () => {
+    const confirmed = window.confirm(lang === 'fr' ? 'Fermer définitivement ce canal ? Les membres ne pourront plus consulter ses publications.' : 'Close this channel? Members will no longer be able to view its posts.');
+    if (confirmed && await closeCommunity('channel', channel.id)) navigate('/messages');
+  };
 
   return (
     <div
@@ -1296,7 +1468,97 @@ function ChannelView({ channelId }: { channelId: string }) {
         gap: 14,
       }}
     >
+      {(canPublish || isOwner) && <section className="card" style={{ display: 'grid', gap: 12, padding: 14 }}>
+        <strong style={{ fontSize: 14.5 }}>{lang === 'fr' ? 'Gestion du canal' : 'Channel management'}</strong>
+        {canPublish && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <button type="button" className="btn btn-outline" disabled={inviteBusy} onClick={() => void shareChannelInvite(false)}>
+            <Icon name="link" size={17} />{inviteBusy ? t.loading : lang === 'fr' ? 'Créer un lien d’invitation · 7 jours' : 'Create invite link · 7 days'}
+          </button>
+          <button type="button" className="btn btn-outline" disabled={inviteBusy} onClick={() => void shareChannelInvite(true)}>
+            <Icon name="shield_person" size={17} />{lang === 'fr' ? 'Lien avec approbation' : 'Invite with approval'}
+          </button>
+          <button type="button" className="btn btn-outline" onClick={() => void revokeChannelInviteLinks()}>
+            <Icon name="link" size={17} />{lang === 'fr' ? 'Révoquer les liens' : 'Revoke links'}
+          </button>
+        </div>}
+        {isOwner && <>
+          <label className="btn btn-outline" style={{ justifySelf: 'start', cursor: 'pointer' }}>
+            <Icon name="add_photo_alternate" size={17} />{lang === 'fr' ? 'Modifier la photo du canal' : 'Change channel photo'}
+            <input type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void updateChannelSettings(channel.id, { avatar: file });
+              event.currentTarget.value = '';
+            }} />
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <select className="field" aria-label={lang === 'fr' ? 'Choisir un administrateur' : 'Choose an admin'} value={adminCandidate} onChange={(event) => setAdminCandidate(event.target.value)} style={{ flex: '1 1 180px', minHeight: 42, padding: '0 10px' }}>
+              <option value="">{lang === 'fr' ? 'Ajouter un admin…' : 'Add an admin…'}</option>
+              {adminCandidates.map((person) => <option key={person.id} value={person.id}>{person.name} · @{person.username}</option>)}
+            </select>
+            <button type="button" className="btn btn-outline" disabled={!adminCandidate} onClick={async () => {
+              if (await setChannelAdmin(channel.id, adminCandidate, true)) setAdminCandidate('');
+            }}>{lang === 'fr' ? 'Ajouter' : 'Add'}</button>
+          </div>
+          {!!adminIds.length && <div style={{ display: 'grid', gap: 6 }}>
+            {adminIds.map((profileId) => {
+              const admin = data.users.find((person) => person.id === profileId);
+              if (!admin) return null;
+              return <div key={profileId} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13.5 }}>
+                <Avatar hue={admin.hue} initials={toInitials(admin.name)} size={30} src={admin.avatarUrl} />
+                <span style={{ flex: 1 }}>{admin.name} <span style={{ color: 'var(--ink3)' }}>@{admin.username}</span></span>
+                <button type="button" className="icon-btn" aria-label={lang === 'fr' ? `Retirer ${admin.name} des admins` : `Remove ${admin.name} as admin`} onClick={() => void setChannelAdmin(channel.id, profileId, false)}><Icon name="person_remove" size={17} /></button>
+              </div>;
+            })}
+          </div>}
+          <button type="button" className="btn btn-outline" onClick={() => void closeCurrentChannel()} style={{ color: 'var(--danger)', justifySelf: 'start' }}>{lang === 'fr' ? 'Fermer le canal' : 'Close channel'}</button>
+        </>}
+      </section>}
       <p style={{ margin: 0, color: 'var(--ink3)', fontSize: 13.5, lineHeight: 1.55 }}>{channel.description}</p>
+      <button type="button" className="link" style={{ alignSelf: 'flex-start' }} onClick={() => void reportCommunity({ channelId: channel.id })}>
+        <Icon name="flag" size={16} />{lang === 'fr' ? 'Signaler ce canal' : 'Report this channel'}
+      </button>
+      {!!channel.joinRequests?.length && canPublish && <section className="card" style={{ display: 'grid', gap: 8, padding: 12 }}>
+        <strong style={{ fontSize: 13.5 }}>{lang === 'fr' ? `Demandes d’accès · ${channel.joinRequests.length}` : `Join requests · ${channel.joinRequests.length}`}</strong>
+        {channel.joinRequests.map((request) => {
+          const person = userById(request.profileId);
+          return <div key={request.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Avatar hue={person.hue} initials={toInitials(person.name)} size={32} src={person.avatarUrl} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: 13.5 }}>{person.name}</span>
+            <button type="button" className="icon-btn" aria-label={lang === 'fr' ? 'Accepter la demande' : 'Approve request'} onClick={() => void resolveChannelJoinRequest(request.id, true)}><Icon name="check" size={19} /></button>
+            <button type="button" className="icon-btn" aria-label={lang === 'fr' ? 'Refuser la demande' : 'Decline request'} onClick={() => void resolveChannelJoinRequest(request.id, false)}><Icon name="close" size={19} /></button>
+          </div>;
+        })}
+      </section>}
+      {channel.linkedThreadId ? <section className="card" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12 }}>
+        <Icon name="forum" size={20} color="var(--accent)" />
+        <span style={{ flex: 1, minWidth: 0, color: 'var(--ink2)', fontSize: 13.5 }}>{lang === 'fr' ? 'Discussion associée' : 'Linked discussion'}</span>
+        {data.groups.some((group) => group.id === channel.linkedThreadId)
+          ? <button type="button" className="btn btn-outline btn-sm" onClick={() => navigate(`/messages/group/${channel.linkedThreadId}`)}>{lang === 'fr' ? 'Ouvrir' : 'Open'}</button>
+          : <button type="button" className="btn btn-outline btn-sm" disabled={discussionBusy || !channel.subscribed} onClick={async () => {
+            setDiscussionBusy(true);
+            const threadId = await joinChannelDiscussion(channel.id);
+            setDiscussionBusy(false);
+            if (threadId) navigate(`/messages/group/${threadId}`);
+          }}>{discussionBusy ? t.loading : lang === 'fr' ? 'Rejoindre' : 'Join'}</button>}
+      </section> : isOwner && syncing ? <button type="button" className="btn btn-outline" disabled={discussionBusy} onClick={async () => {
+        setDiscussionBusy(true);
+        const threadId = await linkChannelDiscussion(channel.id);
+        setDiscussionBusy(false);
+        if (threadId) navigate(`/messages/group/${threadId}`);
+      }}>{discussionBusy ? t.loading : lang === 'fr' ? 'Créer une discussion de groupe liée' : 'Create linked group discussion'}</button> : null}
+      {canPublish && <form onSubmit={async (event) => {
+        event.preventDefault();
+        if (!draft.trim() || publishing) return;
+        setPublishing(true);
+        const saved = await createChannelPost(channel.id, draft);
+        setPublishing(false);
+        if (saved) setDraft('');
+      }} style={{ display: 'grid', gap: 9, padding: 13, border: '1px solid var(--line)', borderRadius: 17, background: 'var(--surface)' }}>
+        <label htmlFor="channel-post" style={{ fontSize: 13, fontWeight: 650 }}>{lang === 'fr' ? 'Publication du canal' : 'Channel update'}</label>
+        <textarea id="channel-post" className="field" maxLength={5000} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={lang === 'fr' ? 'Partager une actualité…' : 'Share an update…'} style={{ minHeight: 84, padding: 12, resize: 'vertical' }} />
+        <button className="btn btn-primary" type="submit" disabled={!draft.trim() || publishing} style={{ justifySelf: 'end' }}>{publishing ? t.loading : lang === 'fr' ? 'Publier' : 'Publish'}</button>
+      </form>}
+      {!channel.posts.length && <p style={{ margin: 0, padding: '22px 12px', textAlign: 'center', border: '1px dashed var(--line)', borderRadius: 16, color: 'var(--ink3)', fontSize: 13.5 }}>{lang === 'fr' ? 'Aucune publication pour le moment.' : 'No posts yet.'}</p>}
       {channel.posts.map((post) => (
         <article
           key={post.id}
@@ -1321,17 +1583,10 @@ function ChannelView({ channelId }: { channelId: string }) {
                 placeItems: 'center',
               }}
             >
-              <span
-                style={{
-                  fontFamily: 'ui-monospace,monospace',
-                  fontSize: 11,
-                  letterSpacing: '0.07em',
-                  textTransform: 'uppercase',
-                  color: `oklch(0.93 0.02 ${channel.hue})`,
-                }}
-              >
-                {post.media[0].label}
-              </span>
+              {post.media[0].url ? post.media[0].video
+                ? <video src={post.media[0].url} controls preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : <img src={post.media[0].url} alt={post.media[0].label} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : <span style={{ fontSize: 12, color: 'var(--ink3)' }}>{lang === 'fr' ? 'Média indisponible' : 'Media unavailable'}</span>}
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1372,6 +1627,9 @@ function ChannelView({ channelId }: { channelId: string }) {
             <button className="hov-ink" onClick={() => showToast(t.copied)} style={{ color: 'var(--ink3)' }}>
               <Icon name="ios_share" size={18} />
             </button>
+            <button className="hov-ink" aria-label={lang === 'fr' ? 'Signaler cette publication' : 'Report this post'} onClick={() => void reportCommunity({ channelId: channel.id, channelPostId: post.id })} style={{ color: 'var(--ink3)' }}>
+              <Icon name="flag" size={18} />
+            </button>
           </div>
         </article>
       ))}
@@ -1384,6 +1642,8 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
   const {
     data,
     user,
+    syncing,
+    offline,
     t,
     lang,
     meId,
@@ -1395,9 +1655,17 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
     deleteMessage,
     subscribeChannel,
     markThreadRead,
+    loadOlderMessages,
     leaveGroup,
     setMemberRole,
     removeMember,
+    createGroupInvite,
+    revokeGroupInvites,
+    resolveGroupJoinRequest,
+    reportCommunity,
+    updateGroupSettings,
+    transferGroupOwner,
+    closeCommunity,
     showToast,
     toggleMute,
     setEphemeral,
@@ -1412,25 +1680,29 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
   const [attachmentPreview, setAttachmentPreview] = useState<AttachmentPreviewData | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [emojiTab, setEmojiTab] = useState<'emoji' | 'stickers' | 'gifs'>('emoji');
-  const [voice, setVoice] = useState<{ id: string; progress: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [search, setSearch] = useState('');
   const [matchIndex, setMatchIndex] = useState(0);
   const [ephemeralOpen, setEphemeralOpen] = useState(false);
+  const [groupSettingsOpen, setGroupSettingsOpen] = useState(false);
   const [forwarding, setForwarding] = useState<Message | null>(null);
   const [threadMenuOpen, setThreadMenuOpen] = useState(false);
-  const [call, setCall] = useState<{ kind: 'audio' | 'video'; seconds: number; live: boolean } | null>(null);
-  const [callMuted, setCallMuted] = useState(false);
-  const [cameraOn, setCameraOn] = useState(true);
   const [recording, setRecording] = useState<{ seconds: number; cancel: boolean; startX: number } | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
+  const preservedScrollRef = useRef<number | null>(null);
   const recordingRef = useRef<{ seconds: number; cancel: boolean; startX: number } | null>(null);
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceChunksRef = useRef<Blob[]>([]);
+  const voiceCanceledRef = useRef(false);
+  const voiceDurationRef = useRef(0);
   const stopRecordingRef = useRef<(force: boolean) => void>(() => {});
 
   const conversation = kind === 'dm' ? data.conversations.find((c) => c.id === id) : undefined;
   const group = kind === 'group' ? data.groups.find((g) => g.id === id) : undefined;
   const channel = kind === 'channel' ? data.channels.find((c) => c.id === id) : undefined;
   const messages = conversation?.messages ?? group?.messages ?? [];
+  const latestMessageId = messages[messages.length - 1]?.id;
   const isChat = kind === 'dm' || kind === 'group';
   const typing = kind === 'dm' && typingThreadId === id;
 
@@ -1441,14 +1713,25 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
 
   useEffect(() => {
     const el = scroller.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    if (preservedScrollRef.current !== null) {
+      el.scrollTop = Math.max(0, el.scrollHeight - preservedScrollRef.current);
+      preservedScrollRef.current = null;
+    } else {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [rows.length, typing]);
 
   // Opening a thread by URL clears its badge and records where the unread line goes.
   useEffect(() => {
-    if (kind !== 'channel') markThreadRead(kind, id);
+    const acknowledgeIfVisible = () => {
+      if (kind !== 'channel' && document.visibilityState === 'visible') markThreadRead(kind, id);
+    };
+    acknowledgeIfVisible();
+    document.addEventListener('visibilitychange', acknowledgeIfVisible);
+    return () => document.removeEventListener('visibilitychange', acknowledgeIfVisible);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, id]);
+  }, [kind, id, latestMessageId]);
 
   // Disappearing messages: sweep on open, then once a minute while the thread is open.
   useEffect(() => {
@@ -1474,20 +1757,6 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
       ?.querySelector(`[data-message-id="${target}"]`)
       ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [matches, matchIndex]);
-
-  useEffect(() => {
-    if (!voice) return;
-    const timer = window.setInterval(() => {
-      setVoice((prev) => (prev ? (prev.progress + 0.022 >= 1 ? null : { ...prev, progress: prev.progress + 0.022 }) : null));
-    }, 100);
-    return () => window.clearInterval(timer);
-  }, [voice]);
-
-  useEffect(() => {
-    if (!call?.live) return;
-    const timer = window.setInterval(() => setCall((prev) => (prev ? { ...prev, seconds: prev.seconds + 0.1 } : prev)), 100);
-    return () => window.clearInterval(timer);
-  }, [call?.live]);
 
   const isRecording = recording !== null;
   recordingRef.current = recording;
@@ -1523,34 +1792,96 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
     };
   }, [isRecording]);
 
-  const startCall = (callKind: 'audio' | 'video') => {
-    setCall({ kind: callKind, seconds: 0, live: false });
-    setCallMuted(false);
-    setCameraOn(true);
-    window.setTimeout(() => setCall((prev) => (prev ? { ...prev, live: true, seconds: 0 } : prev)), 2400);
-  };
+  const startCall = () => showToast(t.callUnavailable);
 
-  const endCall = () => {
-    if (call?.live) showToast(`${t.callEnded} · ${mmss(call.seconds)}`);
-    setCall(null);
+  const beginVoiceRecording = async (startX: number) => {
+    if (syncing && offline) {
+      showToast(t.networkRequired);
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      showToast(t.micUnavailable);
+      return;
+    }
+    voiceCanceledRef.current = false;
+    voiceChunksRef.current = [];
+    setRecording({ seconds: 0, cancel: false, startX });
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      setRecording(null);
+      showToast(t.micDenied);
+      return;
+    }
+    // The user may release the hold gesture while the browser permission prompt is open.
+    if (!recordingRef.current) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    try {
+      const preferredType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
+        .find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(stream, preferredType ? { mimeType: preferredType } : undefined);
+      voiceRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) voiceChunksRef.current.push(event.data);
+      };
+      recorder.onerror = () => {
+        voiceCanceledRef.current = true;
+        showToast(t.uploadErr);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        voiceRecorderRef.current = null;
+        if (voiceCanceledRef.current || !voiceChunksRef.current.length) return;
+        const type = recorder.mimeType || 'audio/webm';
+        const extension = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
+        const file = new File(voiceChunksRef.current, `note-vocale.${extension}`, { type });
+        voiceChunksRef.current = [];
+        try {
+          const uploaded = await uploadThreadFile(file, id, meId, syncing);
+          const seconds = Math.max(1, voiceDurationRef.current);
+          const saved = await pushMessage(kind, id, {
+            kind: 'voice',
+            mediaLabel: `note vocale · ${mmss(seconds)}`,
+            mediaUrl: uploaded.url,
+            mediaPath: uploaded.storagePath,
+            docName: file.name,
+            docSize: fileSize(file.size),
+          });
+          if (!saved) {
+            if (uploaded.local) URL.revokeObjectURL(uploaded.url);
+            return;
+          }
+          showToast(t.sentOk);
+        } catch (error) {
+          console.error('facemash: voice note upload failed', error);
+          showToast(t.uploadErr);
+        }
+      };
+      recorder.start(200);
+    } catch (error) {
+      stream.getTracks().forEach((track) => track.stop());
+      setRecording(null);
+      console.error('facemash: voice recording could not start', error);
+      showToast(t.micUnavailable);
+    }
   };
 
   const stopRecording = (force: boolean) => {
     const current = recordingRef.current;
     setRecording(null);
     if (!current) return;
+    voiceDurationRef.current = current.seconds;
+    voiceCanceledRef.current = current.cancel || (current.seconds < 0.6 && !force);
     if (current.cancel) {
       showToast(t.recCanceled);
-      return;
-    }
-    if (current.seconds < 0.6 && !force) {
+    } else if (current.seconds < 0.6 && !force) {
       showToast(t.holdMic);
-      return;
     }
-    pushMessage(kind, id, {
-      kind: 'voice',
-      mediaLabel: `note vocale · ${mmss(Math.max(1, current.seconds))}`,
-    });
+    const recorder = voiceRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
   };
   stopRecordingRef.current = stopRecording;
 
@@ -1565,13 +1896,12 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
   const header = (() => {
     if (conversation) {
       const other = userById(conversation.userId);
-      const online = ['u1', 'u3', 'u5'].includes(other.id);
       return {
         name: other.name,
         initials: toInitials(other.name),
         hue: other.hue,
-        sub: typing ? t.typing : online ? t.online : `${t.lastSeen} ${rel(Date.now() - (40 + (other.hue % 120)) * 60000, lang)}`,
-        subColor: typing || online ? 'var(--accent)' : 'var(--ink3)',
+        sub: typing ? t.typing : `@${other.username}`,
+        subColor: typing ? 'var(--accent)' : 'var(--ink3)',
       };
     }
     if (group) {
@@ -1579,6 +1909,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
         name: group.name,
         initials: toInitials(group.name),
         hue: group.hue,
+        avatarUrl: group.avatarUrl,
         sub: `${group.members.length} ${t.members}`,
         subColor: 'var(--ink3)',
       };
@@ -1588,11 +1919,12 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
         name: channel.name,
         initials: toInitials(channel.name),
         hue: channel.hue,
+        avatarUrl: channel.avatarUrl,
         sub: `${fmt(channel.subscribers)} ${t.subscribers}`,
         subColor: 'var(--ink3)',
       };
     }
-    return { name: '', initials: '', hue: 265, sub: '', subColor: 'var(--ink3)' };
+    return { name: '', initials: '', hue: 265, sub: '', subColor: 'var(--ink3)', avatarUrl: undefined };
   })();
 
   if (!conversation && !group && !channel) {
@@ -1605,7 +1937,33 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
 
   const myRole = group?.members.find((m) => m.userId === meId)?.role;
   const canManage = myRole === 'owner' || myRole === 'admin';
+  const canInvite = canManage || (myRole === 'member' && group?.invitePolicy === 'members');
   const draftRows = Math.min(5, Math.max(1, draft.split('\n').length + Math.floor(draft.length / 46)));
+
+  const shareGroupInvite = async (approvalRequired: boolean) => {
+    setThreadMenuOpen(false);
+    const token = await createGroupInvite(id, approvalRequired);
+    if (!token) return;
+    const result = await shareLink({
+      title: group?.name,
+      text: lang === 'fr' ? `Rejoins le groupe « ${group?.name} » sur Facemash` : `Join the “${group?.name}” group on Facemash`,
+      url: groupInviteUrl(token),
+    });
+    if (result === 'copied') showToast(t.copied);
+    else if (result === 'failed') showToast(t.messageSendError);
+  };
+
+  const revokeGroupInviteLinks = async () => {
+    setThreadMenuOpen(false);
+    if (await revokeGroupInvites(id)) showToast(lang === 'fr' ? 'Tous les liens actifs ont été révoqués.' : 'All active invite links were revoked.');
+  };
+
+  const saveGroupSettings = (patch: GroupSettingsPatch) => updateGroupSettings(id, patch);
+  const closeCurrentGroup = async () => {
+    const closed = await closeCommunity('group', id);
+    if (closed) navigate('/messages');
+    return closed;
+  };
 
   return (
     <>
@@ -1636,22 +1994,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
         >
           <Icon name="arrow_back" size={22} />
         </button>
-        <span
-          style={{
-            width: 40,
-            height: 40,
-            flex: '0 0 40px',
-            borderRadius: '50%',
-            display: 'grid',
-            placeItems: 'center',
-            fontWeight: 600,
-            fontSize: 14,
-            color: `oklch(0.26 0.05 ${header.hue})`,
-            background: `oklch(0.8 0.07 ${header.hue})`,
-          }}
-        >
-          {header.initials}
-        </span>
+        <Avatar hue={header.hue} initials={header.initials} size={40} fontSize={14} src={conversation ? userById(conversation.userId).avatarUrl : header.avatarUrl} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
@@ -1685,7 +2028,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
           <>
             <button
               className="hov-surface-ink"
-              onClick={() => startCall('audio')}
+              onClick={startCall}
               aria-label={t.audioCall}
               style={{ width: 38, height: 38, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'var(--ink2)' }}
             >
@@ -1693,7 +2036,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
             </button>
             <button
               className="hov-surface-ink"
-              onClick={() => startCall('video')}
+              onClick={startCall}
               aria-label={t.videoCall}
               style={{ width: 38, height: 38, borderRadius: '50%', display: 'grid', placeItems: 'center', color: 'var(--ink2)' }}
             >
@@ -1756,6 +2099,28 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
                   />
                   <span style={{ fontSize: 14.5 }}>{user.muted[id] ? t.unmute : t.mute}</span>
                 </button>
+                {group && canManage && <>
+                  <button className="hov-surface2" role="menuitem" onClick={() => { setThreadMenuOpen(false); setGroupSettingsOpen(true); }} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '13px 15px', textAlign: 'left' }}>
+                    <Icon name="settings" size={19} color="var(--ink2)" /><span style={{ fontSize: 14.5 }}>{lang === 'fr' ? 'Paramètres du groupe' : 'Group settings'}</span>
+                  </button>
+                </>}
+                {group && <button className="hov-surface2" role="menuitem" onClick={() => {
+                  setThreadMenuOpen(false);
+                  void reportCommunity({ threadId: group.id });
+                }} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '13px 15px', textAlign: 'left', color: 'var(--danger)' }}>
+                  <Icon name="flag" size={19} color="var(--danger)" /><span style={{ fontSize: 14.5 }}>{lang === 'fr' ? 'Signaler ce groupe' : 'Report this group'}</span>
+                </button>}
+                {group && canInvite && syncing && <>
+                  <button className="hov-surface2" role="menuitem" onClick={() => void shareGroupInvite(false)} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '13px 15px', textAlign: 'left' }}>
+                    <Icon name="link" size={19} color="var(--ink2)" /><span style={{ fontSize: 14.5 }}>{lang === 'fr' ? 'Créer un lien · 7 jours' : 'Create link · 7 days'}</span>
+                  </button>
+                  <button className="hov-surface2" role="menuitem" onClick={() => void shareGroupInvite(true)} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '13px 15px', textAlign: 'left' }}>
+                    <Icon name="shield_person" size={19} color="var(--ink2)" /><span style={{ fontSize: 14.5 }}>{lang === 'fr' ? 'Lien avec approbation' : 'Link with approval'}</span>
+                  </button>
+                  {canManage && <button className="hov-surface2" role="menuitem" onClick={() => void revokeGroupInviteLinks()} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '13px 15px', textAlign: 'left', color: 'var(--danger)' }}>
+                    <Icon name="link" size={19} color="var(--danger)" /><span style={{ fontSize: 14.5 }}>{lang === 'fr' ? 'Révoquer tous les liens' : 'Revoke all links'}</span>
+                  </button>}
+                </>}
               </div>
             )}
           </div>
@@ -1872,6 +2237,19 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
       )}
 
       {group && (
+        <>
+        {canManage && !!group.joinRequests?.length && <div style={{ flex: '0 0 auto', padding: '10px 12px', borderBottom: '1px solid var(--line)', background: 'color-mix(in oklab, var(--accent) 7%, var(--bg))' }}>
+          <strong style={{ display: 'block', marginBottom: 7, fontSize: 13.5 }}>{lang === 'fr' ? `Demandes d’accès · ${group.joinRequests.length}` : `Join requests · ${group.joinRequests.length}`}</strong>
+          {group.joinRequests.map((request) => {
+            const applicant = userById(request.userId);
+            return <div key={request.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 0' }}>
+              <Avatar hue={applicant.hue} initials={toInitials(applicant.name)} size={34} src={applicant.avatarUrl} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{applicant.name} <span style={{ color: 'var(--ink3)' }}>@{applicant.username}</span></span>
+              <button className="icon-btn" aria-label={lang === 'fr' ? 'Accepter la demande' : 'Approve request'} onClick={() => void resolveGroupJoinRequest(request.id, true)}><Icon name="check" size={19} /></button>
+              <button className="icon-btn" aria-label={lang === 'fr' ? 'Refuser la demande' : 'Decline request'} onClick={() => void resolveGroupJoinRequest(request.id, false)}><Icon name="close" size={19} /></button>
+            </div>;
+          })}
+        </div>}
         <div
           style={{
             flex: '0 0 auto',
@@ -1900,21 +2278,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
                       : 'color-mix(in oklab, var(--accent) 18%, var(--surface))',
                 }}
               >
-                <span
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: '50%',
-                    display: 'grid',
-                    placeItems: 'center',
-                    fontWeight: 600,
-                    fontSize: 11.5,
-                    color: `oklch(0.26 0.05 ${memberUser.hue})`,
-                    background: `oklch(0.8 0.07 ${memberUser.hue})`,
-                  }}
-                >
-                  {toInitials(memberUser.name)}
-                </span>
+                <Avatar hue={memberUser.hue} initials={toInitials(memberUser.name)} size={28} src={memberUser.avatarUrl} />
                 <span style={{ fontSize: 12.5, fontWeight: 500 }}>{memberUser.name}</span>
                 <span style={{ fontSize: 11, color: 'var(--ink3)' }}>{t[member.role]}</span>
                 {canManage && member.userId !== meId && member.role !== 'owner' && (
@@ -1927,6 +2291,18 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
                       >
                         <Icon name="shield_person" size={16} />
                       </button>
+                    )}
+                    {myRole === 'owner' && (
+                      <button
+                        className="hov-accent-shield"
+                        aria-label={lang === 'fr' ? `Transférer la propriété à ${memberUser.name}` : `Transfer ownership to ${memberUser.name}`}
+                        title={lang === 'fr' ? 'Transférer la propriété' : 'Transfer ownership'}
+                        onClick={() => {
+                          const accepted = window.confirm(lang === 'fr' ? `Transférer la propriété du groupe à ${memberUser.name} ?` : `Transfer group ownership to ${memberUser.name}?`);
+                          if (accepted) void transferGroupOwner(group.id, member.userId);
+                        }}
+                        style={{ color: 'var(--accent)' }}
+                      ><Icon name="workspace_premium" size={16} /></button>
                     )}
                     {(myRole === 'owner' || (myRole === 'admin' && member.role === 'member')) && (
                       <button
@@ -1942,7 +2318,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
               </div>
             );
           })}
-          <button
+          {myRole !== 'owner' && <button
             className="hov-like-line"
             onClick={() => {
               leaveGroup(group.id);
@@ -1958,11 +2334,20 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
             }}
           >
             {t.leave}
-          </button>
+          </button>}
         </div>
+        </>
       )}
 
       {channel && <ChannelView channelId={channel.id} />}
+
+      {group && groupSettingsOpen && canManage && <GroupSettingsSheet
+        group={group}
+        owner={myRole === 'owner'}
+        onClose={() => setGroupSettingsOpen(false)}
+        onSave={saveGroupSettings}
+        onCloseGroup={closeCurrentGroup}
+      />}
 
       {isChat && (
         <>
@@ -1981,6 +2366,18 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
               background: CHAT_BG,
             }}
           >
+            {(conversation?.hasMore || group?.hasMore) && <button
+              type="button"
+              disabled={loadingOlder}
+              onClick={async () => {
+                const el = scroller.current;
+                if (el) preservedScrollRef.current = el.scrollHeight - el.scrollTop;
+                setLoadingOlder(true);
+                await loadOlderMessages(kind, id);
+                setLoadingOlder(false);
+              }}
+              style={{ alignSelf: 'center', margin: '8px auto 14px', padding: '9px 14px', borderRadius: 999, background: 'var(--surface)', border: '1px solid var(--line)', color: 'var(--ink2)', fontSize: 12.5, fontWeight: 600 }}
+            >{loadingOlder ? t.loading : lang === 'fr' ? 'Charger les messages précédents' : 'Load earlier messages'}</button>}
             {messages.length === 0 && (
               <div style={{ padding: '70px 20px', textAlign: 'center', color: 'var(--ink3)' }}>
                 <Icon name="forum" size={38} />
@@ -2027,10 +2424,6 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
                   onMenu={setMenuMessage}
                   onReply={(message) =>
                     setReplyTo({ id: message.id, text: message.text ?? message.docName ?? message.mediaLabel ?? '' })
-                  }
-                  voiceProgress={voice?.id === row.message!.id ? voice.progress : 0}
-                  onToggleVoice={(messageId) =>
-                    setVoice((prev) => (prev?.id === messageId ? null : { id: messageId, progress: 0 }))
                   }
                   highlighted={matches.includes(row.message!.id)}
                   current={matches[matchIndex] === row.message!.id}
@@ -2305,7 +2698,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
                       className="hov-ink"
                       onPointerDown={(e) => {
                         e.currentTarget.setPointerCapture?.(e.pointerId);
-                        setRecording({ seconds: 0, cancel: false, startX: e.clientX });
+                        void beginVoiceRecording(e.clientX);
                       }}
                       style={{
                         width: 44,
@@ -2465,6 +2858,7 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
 
       {attachOpen && (
         <AttachSheet
+          threadId={id}
           onClose={() => setAttachOpen(false)}
           onPick={(item) => pushMessage(kind, id, item as Partial<Message> & { kind: Message['kind'] })}
         />
@@ -2474,19 +2868,6 @@ export function Thread({ kind, id }: { kind: ThreadKind; id: string }) {
         <AttachmentPreviewDialog file={attachmentPreview} onClose={() => setAttachmentPreview(null)} />
       )}
 
-      {call && conversation && (
-        <CallOverlay
-          kind={call.kind}
-          userId={conversation.userId}
-          seconds={call.seconds}
-          live={call.live}
-          muted={callMuted}
-          cameraOn={cameraOn}
-          onToggleMute={() => setCallMuted((v) => !v)}
-          onToggleCamera={() => setCameraOn((v) => !v)}
-          onEnd={endCall}
-        />
-      )}
     </>
   );
 }

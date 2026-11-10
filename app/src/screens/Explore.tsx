@@ -16,7 +16,7 @@ type Scope = 'all' | 'people' | 'tags' | 'posts';
 export function Explore() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const { data, user, t, meId } = useApp();
+  const { data, user, t, lang, meId } = useApp();
   const trends = useTrends();
   const recents = useRecents();
   const [query, setQuery] = useState(params.get('q') ?? '');
@@ -159,6 +159,7 @@ export function Explore() {
         <div style={{ padding: '4px 0 30px' }}>
           <div className="hscroll" style={{ padding: '14px 16px 4px' }}>
             <button className="chip" aria-pressed={category === null} onClick={() => setCategory(null)}><Icon name="sparkle" size={15} />{t.forYou}</button>
+            <button className="chip" onClick={() => navigate('/messages?create=channel')}><Icon name="campaign" size={15} />{lang === 'fr' ? 'Créer un canal' : 'Create a channel'}</button>
             {INTERESTS.map((c) => (
               <button key={c} className="chip" aria-pressed={category === c} onClick={() => setCategory(category === c ? null : c)}>{c}</button>
             ))}
@@ -210,7 +211,7 @@ export function Explore() {
               <h3 className="section-title" style={{ margin: '28px 16px 6px' }}>{t.communities}</h3>
               {data.groups.map((g) => (
                 <button key={g.id} className="row-hover" onClick={() => navigate(`/messages/group/${g.id}`)} style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '10px 16px', width: '100%', textAlign: 'left' }}>
-                  <Avatar hue={g.hue} initials={toInitials(g.name)} size={48} radius="16px" />
+                  <Avatar hue={g.hue} initials={toInitials(g.name)} size={48} radius="16px" src={g.avatarUrl} />
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: 'block', fontSize: 15, fontWeight: 650 }}>{g.name}</span>
                     <span style={{ display: 'block', fontSize: 13, color: 'var(--ink3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.members.length} {t.members} · {g.description}</span>
@@ -220,7 +221,7 @@ export function Explore() {
               ))}
               {data.channels.map((c) => (
                 <button key={c.id} className="row-hover" onClick={() => navigate(`/messages/channel/${c.id}`)} style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '10px 16px', width: '100%', textAlign: 'left' }}>
-                  <Avatar hue={c.hue} initials={toInitials(c.name)} size={48} radius="16px" />
+                  <Avatar hue={c.hue} initials={toInitials(c.name)} size={48} radius="16px" src={c.avatarUrl} />
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: 'block', fontSize: 15, fontWeight: 650 }}>{c.name}</span>
                     <span style={{ display: 'block', fontSize: 13, color: 'var(--ink3)' }}>@{c.slug} · {fmt(c.subscribers)} {t.subscribers}</span>

@@ -7,6 +7,8 @@ const base = (): string => {
 export const postUrl = (id: string): string => `${base()}/post/${id}`;
 export const profileUrl = (id: string): string => `${base()}/profile/${id}`;
 export const tagUrl = (tag: string): string => `${base()}/tag/${encodeURIComponent(tag.replace('#', ''))}`;
+export const groupInviteUrl = (token: string): string => `${base()}/join/group/${encodeURIComponent(token)}`;
+export const channelInviteUrl = (token: string): string => `${base()}/join/channel/${encodeURIComponent(token)}`;
 
 export async function copyText(text: string): Promise<boolean> {
   try {

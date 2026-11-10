@@ -4,7 +4,7 @@ import { Segmented } from '../components/ui';
 import { useApp } from '../store';
 import { demoMode, supabase } from '../lib/supabase';
 import { useLayout } from '../viewport';
-import { normalizeInviteCode, rememberInviteCode } from '../lib/invites.mjs';
+import { normalizeChannelInviteToken, normalizeGroupInviteToken, normalizeInviteCode, rememberChannelInviteToken, rememberGroupInviteToken, rememberInviteCode } from '../lib/invites.mjs';
 
 type Mode = 'login' | 'signup' | 'forgot';
 
@@ -41,6 +41,8 @@ export function Auth() {
   const { t, lang, signIn, data } = useApp();
   const { shellHeight, wide } = useLayout();
   const inviteCode = normalizeInviteCode(new URLSearchParams(window.location.search).get('invite'));
+  const groupInviteToken = normalizeGroupInviteToken(new URLSearchParams(window.location.search).get('groupInvite'));
+  const channelInviteToken = normalizeChannelInviteToken(new URLSearchParams(window.location.search).get('channelInvite'));
   const [mode, setMode] = useState<Mode>(() => new URLSearchParams(window.location.search).get('mode') === 'signup' ? 'signup' : 'login');
   const [form, setForm] = useState({ name: '', username: '', email: '', password: '' });
   const [busy, setBusy] = useState(false);
@@ -52,14 +54,25 @@ export function Auth() {
     if (inviteCode) rememberInviteCode(inviteCode);
   }, [inviteCode]);
 
+  useEffect(() => {
+    if (groupInviteToken) rememberGroupInviteToken(groupInviteToken);
+  }, [groupInviteToken]);
+
+  useEffect(() => {
+    if (channelInviteToken) rememberChannelInviteToken(channelInviteToken);
+  }, [channelInviteToken]);
+
   const signInWithGoogle = async () => {
     if (!supabase) return;
     setBusy(true);
     setError('');
     try {
       if (inviteCode) rememberInviteCode(inviteCode);
+      if (groupInviteToken) rememberGroupInviteToken(groupInviteToken);
+      if (channelInviteToken) rememberChannelInviteToken(channelInviteToken);
       const redirect = new URL('/', window.location.origin);
       if (inviteCode) redirect.searchParams.set('invite', inviteCode);
+      if (channelInviteToken) redirect.searchParams.set('channelInvite', channelInviteToken);
       const { error: oauthError } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: redirect.toString() } });
       if (oauthError) throw oauthError;
     } catch (oauthError) {

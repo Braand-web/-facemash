@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '../components/Icon';
 import { EmptyState, FollowButton, Sheet, UnderlineTabs, UserAvatar } from '../components/ui';
@@ -14,9 +14,34 @@ type Tab = 'posts' | 'media' | 'reposts' | 'likes';
 function EditProfileSheet({ onClose }: { onClose: () => void }) {
   const { t, me, saveProfile } = useApp();
   const [form, setForm] = useState({ name: me.name, bio: me.bio, location: me.location });
+  const [avatar, setAvatar] = useState<File | null | undefined>(undefined);
+  const [avatarPreview, setAvatarPreview] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (!(avatar instanceof File)) {
+      setAvatarPreview(avatar === null ? undefined : me.avatarUrl);
+      return;
+    }
+    const url = URL.createObjectURL(avatar);
+    setAvatarPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [avatar, me.avatarUrl]);
   return (
     <Sheet onClose={onClose} label={t.editProfile} title={t.editProfile} z={76}>
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '4px 0 10px' }}>
+          <span style={{ width: 76, height: 76, flex: '0 0 76px', overflow: 'hidden', display: 'grid', placeItems: 'center', borderRadius: '50%', background: 'var(--surface2)', color: 'var(--ink3)', fontSize: 28, fontWeight: 700 }}>
+            {avatarPreview ? <img src={avatarPreview} alt="Aperçu de la photo de profil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Icon name="person" size={28} />}
+          </span>
+          <div style={{ display: 'grid', gap: 7, justifyItems: 'start' }}>
+            <label className="btn btn-outline" style={{ cursor: 'pointer' }}>
+              {avatarPreview ? 'Remplacer la photo' : 'Ajouter une photo'}
+              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setAvatar(event.target.files?.[0] ?? undefined)} style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} />
+            </label>
+            {(avatarPreview || avatar === null) && <button className="link" type="button" onClick={() => setAvatar(null)}>Supprimer la photo</button>}
+            <span style={{ fontSize: 12, color: 'var(--ink3)' }}>Carrée, optimisée et visible selon la confidentialité de ton profil.</span>
+          </div>
+        </div>
         <label>
           <span className="eyebrow" style={{ display: 'block', marginBottom: 6 }}>{t.name}</span>
           <input className="field" value={form.name} maxLength={50} onChange={(e) => setForm({ ...form, name: e.target.value })} style={{ minHeight: 50, padding: '0 16px' }} />
@@ -30,8 +55,8 @@ function EditProfileSheet({ onClose }: { onClose: () => void }) {
           <span className="eyebrow" style={{ display: 'block', marginBottom: 6 }}>{t.location}</span>
           <input className="field" value={form.location} maxLength={60} onChange={(e) => setForm({ ...form, location: e.target.value })} style={{ minHeight: 50, padding: '0 16px' }} />
         </label>
-        <button className="btn btn-primary btn-lg btn-block" onClick={() => { saveProfile(form); onClose(); }} style={{ marginTop: 6 }}>
-          {t.save}
+        <button className="btn btn-primary btn-lg btn-block" disabled={saving} onClick={async () => { setSaving(true); const saved = await saveProfile({ ...form, ...(avatar !== undefined ? { avatar } : {}) }); setSaving(false); if (saved) onClose(); }} style={{ marginTop: 6 }}>
+          {saving ? t.loading : t.save}
         </button>
       </div>
     </Sheet>

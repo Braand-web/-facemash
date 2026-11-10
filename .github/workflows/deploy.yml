@@ -18,7 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       PROJECT_REF: qsmeojbntbfoxjhwzbkv
     steps:
       - uses: actions/checkout@v4
@@ -28,22 +27,22 @@ jobs:
         run: |
           missing=()
           [[ -n "$SUPABASE_ACCESS_TOKEN" ]] || missing+=(SUPABASE_ACCESS_TOKEN)
-          [[ -n "$SUPABASE_DB_PASSWORD" ]] || missing+=(SUPABASE_DB_PASSWORD)
           if (( ${#missing[@]} )); then
             printf 'Missing required migration secrets: %s\n' "${missing[*]}"
             exit 1
           fi
 
       - uses: supabase/setup-cli@v3
+        with:
+          version: 2.120.0
 
-      - name: Link and guard the production migration history
+      - name: Guard and apply the production migrations
         shell: bash
         run: |
           set -euo pipefail
-          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
-          history="$(supabase migration list --linked)"
+          history="$(supabase migration list --linked --project-ref "$PROJECT_REF" --agent no --output-format text)"
           printf '%s\n' "$history"
-          differences="$(printf '%s\n' "$history" | awk -F '│' '
+          differences="$(printf '%s\n' "$history" | awk -F '[|│]' '
             NF >= 2 {
               local_version = $1
               remote_version = $2
@@ -55,12 +54,24 @@ jobs:
             END { print "pending=" pending "; remote_only=" remote_only }
           ')"
           printf '%s\n' "$differences"
-          if [[ "$differences" != 'pending= 20261002120000; remote_only=' && "$differences" != 'pending=; remote_only=' ]]; then
-            echo 'Unexpected migration history. Review and reconcile it before production deployment.'
+          pending_versions="${differences#pending=}"
+          pending_versions="${pending_versions%; remote_only=*}"
+          remote_versions="${differences##*; remote_only=}"
+          if [[ -n "${remote_versions// /}" ]]; then
+            echo 'Unexpected remote migrations. Review and reconcile them before production deployment.'
             exit 1
           fi
-          supabase db push --linked --dry-run
-          supabase --yes db push --linked
+          for version in $pending_versions; do
+            case "$version" in
+              20261002120000|20261003100000|20261003110000) ;;
+              *)
+                echo "Unreviewed migration: $version. Review it before production deployment."
+                exit 1
+                ;;
+            esac
+          done
+          supabase db push --linked --project-ref "$PROJECT_REF" --dry-run --agent no --output-format text
+          supabase --yes db push --linked --project-ref "$PROJECT_REF" --agent no --output-format text
 
   deploy:
     if: github.ref == 'refs/heads/main'

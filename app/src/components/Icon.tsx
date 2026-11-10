@@ -100,11 +100,12 @@ interface AvatarProps {
   size: number;
   radius?: string;
   fontSize?: number;
+  src?: string;
   style?: CSSProperties;
 }
 
 /** Generative avatar: a soft flat tint off the account's hue, initials on top. */
-export function Avatar({ hue, initials, size, radius = '50%', fontSize, style }: AvatarProps) {
+export function Avatar({ hue, initials, size, radius = '50%', fontSize, src, style }: AvatarProps) {
   return (
     <span
       className="avatar"
@@ -120,7 +121,7 @@ export function Avatar({ hue, initials, size, radius = '50%', fontSize, style }:
         ...style,
       }}
     >
-      {initials}
+      {src ? <img src={src} alt="" loading="lazy" style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover', borderRadius: 'inherit' }} /> : initials}
     </span>
   );
 }

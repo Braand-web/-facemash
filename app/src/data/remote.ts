@@ -35,6 +35,7 @@ const toUser = (row: Row): User => ({
   followers: Number(row.followers ?? 0),
   following: Number(row.following ?? 0),
   isPrivate: Boolean(row.is_private),
+  avatarPath: (row.avatar_path as string | null) ?? undefined,
 });
 
 const toPost = (row: Row): Post => ({
@@ -80,8 +81,22 @@ const toMessage = (row: Row): Message => ({
     : undefined,
   sharedPostId: (row.shared_post_id as string | null) ?? undefined,
   sharedText: (row.shared_text as string | null) ?? undefined,
-  mediaUrl: (row.media_url as string | null) ?? undefined,
+  mediaUrl: typeof row.media_url === 'string' && /^https?:\/\//i.test(row.media_url) ? row.media_url : undefined,
+  mediaPath: typeof row.media_url === 'string' && !/^https?:\/\//i.test(row.media_url) ? row.media_url : undefined,
 });
+
+async function signThreadMedia(messages: Message[]): Promise<Message[]> {
+  if (!supabase) return messages;
+  const paths = [...new Set(messages.map((message) => message.mediaPath).filter((path): path is string => !!path))];
+  if (!paths.length) return messages;
+  const { data, error } = await supabase.storage.from('thread-media').createSignedUrls(paths, 3600);
+  if (error) {
+    console.warn('facemash: private message attachments could not be signed', error.message);
+    return messages;
+  }
+  const urls = new Map((data ?? []).flatMap((item) => item.path && item.signedUrl ? [[item.path, item.signedUrl] as const] : []));
+  return messages.map((message) => ({ ...message, mediaUrl: message.mediaPath ? urls.get(message.mediaPath) : message.mediaUrl }));
+}
 
 /** The signed-in user's profile row id, which every other table keys off. */
 export async function loadProfileId(): Promise<string | null> {
@@ -119,7 +134,10 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
     members,
     messages,
     channels,
+    channelAdmins,
     subscriptions,
+    joinRequests,
+    channelJoinRequests,
     stories,
     notifications,
     settings,
@@ -138,17 +156,33 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
       .eq('requester_id', profileId)
       .eq('status', 'pending'),
     supabase.from('thread_members').select('*, threads(*)'),
-    supabase.from('messages').select('*, message_reactions(icon)'),
+    supabase.rpc('my_recent_thread_messages', { per_thread: 60 }),
     supabase.from('channels').select('*, channel_posts(*, channel_post_media(*))'),
+    supabase.from('channel_admins').select('channel_id, profile_id'),
     supabase.from('channel_subscriptions').select('channel_id').eq('profile_id', profileId),
+    supabase.from('group_join_requests').select('id, thread_id, profile_id, created_at').eq('status', 'pending'),
+    supabase.from('channel_join_requests').select('id, channel_id, profile_id, created_at').eq('status', 'pending'),
     supabase.from('stories').select('*').order('created_at', { ascending: true }),
     supabase.from('notifications').select('*').order('created_at', { ascending: false }),
     supabase.from('user_settings').select('*').eq('profile_id', profileId).maybeSingle(),
   ]);
 
-  if (profiles.error) return null;
+  if (profiles.error || messages.error) return null;
 
-  const users = ((profiles.data as Row[] | null) ?? []).map(toUser);
+  const profileRows = (profiles.data as Row[] | null) ?? [];
+  const avatarPaths = profileRows.map((row) => row.avatar_path).filter((path): path is string => typeof path === 'string' && !!path);
+  const avatarUrls = new Map<string, string>();
+  if (avatarPaths.length) {
+    const { data: signedAvatars, error: avatarError } = await supabase.storage.from('avatars').createSignedUrls(avatarPaths, 3600);
+    if (avatarError) console.warn('facemash: private profile photos could not be signed', avatarError.message);
+    signedAvatars?.forEach((item) => {
+      if (item.path && item.signedUrl) avatarUrls.set(item.path, item.signedUrl);
+    });
+  }
+  const users = profileRows.map((row) => {
+    const user = toUser(row);
+    return { ...user, avatarUrl: user.avatarPath ? avatarUrls.get(user.avatarPath) : undefined };
+  });
   const allPosts = ((posts.data as Row[] | null) ?? []).map(toPost);
 
   const commentsByPost: Record<string, Comment[]> = {};
@@ -176,17 +210,46 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
       commentsByPost[key] = [...(commentsByPost[key] ?? []), entry];
     });
 
-  const messageRows = ((messages.data as Row[] | null) ?? []).map(toMessage);
+  const rawMessages = (messages.data as Row[] | null) ?? [];
+  const messageIds = rawMessages.map((row) => String(row.id));
+  const reactionsResult = messageIds.length
+    ? await supabase.from('message_reactions').select('message_id, icon').in('message_id', messageIds)
+    : { data: [], error: null };
+  const reactionsByMessage = new Map<string, Row[]>();
+  ((reactionsResult.data as Row[] | null) ?? []).forEach((row) => {
+    const id = String(row.message_id);
+    reactionsByMessage.set(id, [...(reactionsByMessage.get(id) ?? []), { icon: row.icon }]);
+  });
+  const signedMessages = await signThreadMedia(rawMessages.map((row) => toMessage({
+    ...row, message_reactions: reactionsByMessage.get(String(row.id)) ?? [],
+  })));
+  const messageRows = signedMessages;
   const messagesByThread: Record<string, Message[]> = {};
   ((messages.data as Row[] | null) ?? []).forEach((row, i) => {
     const key = String(row.thread_id);
     messagesByThread[key] = [...(messagesByThread[key] ?? []), messageRows[i]];
   });
   Object.values(messagesByThread).forEach((list) => list.sort((a, b) => a.createdAt - b.createdAt));
+  const threadsWithOlderMessages = new Set(
+    Object.entries(messagesByThread).filter(([, list]) => list.length > 60).map(([threadId]) => threadId),
+  );
+  Object.values(messagesByThread).forEach((list) => {
+    if (list.length > 60) list.splice(0, list.length - 60);
+  });
 
   const myMemberships = ((members.data as Row[] | null) ?? []).filter(
     (row) => String(row.profile_id) === profileId,
   );
+  const groupAvatarPaths = [...new Set(myMemberships.flatMap((membership) => {
+    const thread = membership.threads as Row | null;
+    return thread?.kind === 'group' && typeof thread.avatar_path === 'string' ? [thread.avatar_path] : [];
+  }))];
+  const groupAvatarUrls = new Map<string, string>();
+  if (groupAvatarPaths.length) {
+    const { data: signed, error } = await supabase.storage.from('thread-media').createSignedUrls(groupAvatarPaths, 3600);
+    if (error) console.warn('facemash: group images could not be signed', error.message);
+    signed?.forEach((item) => { if (item.path && item.signedUrl) groupAvatarUrls.set(item.path, item.signedUrl); });
+  }
 
   const conversations: Conversation[] = [];
   const groups: Group[] = [];
@@ -194,6 +257,7 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
   const archived: Record<string, boolean> = {};
   const muted: Record<string, boolean> = {};
   const unreadAt: Record<string, number> = {};
+  const joinRequestRows = (joinRequests.data as Row[] | null) ?? [];
 
   myMemberships.forEach((membership) => {
     const thread = membership.threads as Row | null;
@@ -215,6 +279,7 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
         unread: Number(membership.unread ?? 0),
         messages: messagesByThread[threadId] ?? [],
         ephemeralSeconds,
+        hasMore: threadsWithOlderMessages.has(threadId),
       });
     } else {
       groups.push({
@@ -222,12 +287,23 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
         name: String(thread.name ?? ''),
         description: String(thread.description ?? ''),
         hue: Number(thread.hue ?? 265),
+        avatarPath: (thread.avatar_path as string | null) ?? undefined,
+        avatarUrl: typeof thread.avatar_path === 'string' ? groupAvatarUrls.get(thread.avatar_path) : undefined,
+        invitePolicy: String(thread.invite_policy ?? 'admins') as Group['invitePolicy'],
+        approvalRequired: Boolean(thread.approval_required),
+        notificationsEnabled: thread.notifications_enabled !== false,
+        postingMode: String(thread.posting_mode ?? 'all') as Group['postingMode'],
+        slowModeSeconds: Number(thread.slow_mode_seconds ?? 0),
         unread: Number(membership.unread ?? 0),
         members: ((members.data as Row[] | null) ?? [])
           .filter((row) => String(row.thread_id) === threadId)
           .map((row) => ({ userId: String(row.profile_id), role: String(row.role) as Role })),
         messages: messagesByThread[threadId] ?? [],
         ephemeralSeconds,
+        hasMore: threadsWithOlderMessages.has(threadId),
+        joinRequests: joinRequestRows.filter((request) => String(request.thread_id) === threadId).map((request) => ({
+          id: String(request.id), userId: String(request.profile_id), createdAt: asDate(request.created_at),
+        })),
       });
     }
   });
@@ -235,8 +311,17 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
   const subscribed = new Set(
     ((subscriptions.data as Row[] | null) ?? []).map((row) => String(row.channel_id)),
   );
+  const adminRows = (channelAdmins.data as Row[] | null) ?? [];
+  const channelRows = (channels.data as Row[] | null) ?? [];
+  const channelAvatarPaths = [...new Set(channelRows.map((row) => row.avatar_path).filter((path): path is string => typeof path === 'string' && !!path))];
+  const channelAvatarUrls = new Map<string, string>();
+  if (channelAvatarPaths.length) {
+    const { data: signed, error } = await supabase.storage.from('channel-media').createSignedUrls(channelAvatarPaths, 3600);
+    if (error) console.warn('facemash: channel images could not be signed', error.message);
+    signed?.forEach((item) => { if (item.path && item.signedUrl) channelAvatarUrls.set(item.path, item.signedUrl); });
+  }
 
-  const channelList: Channel[] = ((channels.data as Row[] | null) ?? []).map((row) => ({
+  const channelList: Channel[] = channelRows.map((row) => ({
     id: String(row.id),
     name: String(row.name),
     slug: String(row.slug),
@@ -244,11 +329,21 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
     hue: Number(row.hue ?? 182),
     subscribers: Number(row.subscribers ?? 0),
     subscribed: subscribed.has(String(row.id)),
+    ownerProfileId: (row.owner_profile_id as string | null) ?? undefined,
+    adminProfileIds: adminRows.filter((admin) => String(admin.channel_id) === String(row.id)).map((admin) => String(admin.profile_id)),
+    isPrivate: Boolean(row.is_private),
+    linkedThreadId: (row.linked_thread_id as string | null) ?? undefined,
+    joinRequests: ((channelJoinRequests.data as Row[] | null) ?? []).filter((request) => String(request.channel_id) === String(row.id)).map((request) => ({
+      id: String(request.id), profileId: String(request.profile_id), createdAt: asDate(request.created_at),
+    })),
+    avatarPath: (row.avatar_path as string | null) ?? undefined,
+    avatarUrl: typeof row.avatar_path === 'string' ? channelAvatarUrls.get(row.avatar_path) : undefined,
     posts: ((row.channel_posts as Row[] | null) ?? [])
       .slice()
       .sort((a, b) => asDate(b.created_at) - asDate(a.created_at))
       .map((post) => ({
         id: String(post.id),
+        authorId: (post.author_id as string | null) ?? undefined,
         text: String(post.text),
         createdAt: asDate(post.created_at),
         views: Number(post.views ?? 0),
@@ -256,6 +351,7 @@ export async function loadSnapshot(profileId: string): Promise<RemoteSnapshot | 
         media: ((post.channel_post_media as Row[] | null) ?? []).map((m) => ({
           label: String(m.label),
           ratio: String(m.ratio),
+          url: (m.media_url as string | null) ?? undefined,
         })),
       })),
   }));
@@ -364,7 +460,7 @@ export function subscribeRealtime(profileId: string, handlers: RealtimeHandlers)
       (payload) => {
         const row = payload.new as Row;
         if (String(row.sender_id) === profileId) return;
-        handlers.onMessage(String(row.thread_id), toMessage(row));
+        void signThreadMedia([toMessage(row)]).then(([message]) => handlers.onMessage(String(row.thread_id), message));
       },
     )
     .on(
@@ -372,7 +468,7 @@ export function subscribeRealtime(profileId: string, handlers: RealtimeHandlers)
       { event: 'UPDATE', schema: 'facemash', table: 'messages' },
       (payload) => {
         const row = payload.new as Row;
-        handlers.onMessageUpdate(String(row.thread_id), toMessage(row));
+        void signThreadMedia([toMessage(row)]).then(([message]) => handlers.onMessageUpdate(String(row.thread_id), message));
       },
     )
     .on(
@@ -498,12 +594,21 @@ export const remote = {
 
   deleteStory: (storyId: string) => run('deleteStory', () => table('stories').delete().eq('id', storyId)),
 
-  report: (profileId: string, target: { postId?: string; profileId?: string }) =>
+  report: (profileId: string, target: {
+    postId?: string;
+    profileId?: string;
+    threadId?: string;
+    channelId?: string;
+    channelPostId?: string;
+  }) =>
     run('report', () =>
       table('reports').insert({
         reporter_id: profileId,
         post_id: target.postId ?? null,
         profile_id: target.profileId ?? null,
+        thread_id: target.threadId ?? null,
+        channel_id: target.channelId ?? null,
+        channel_post_id: target.channelPostId ?? null,
       }),
     ),
 
@@ -637,6 +742,240 @@ export const remote = {
     return creation;
   },
 
+  createManagedGroup: async (group: {
+    id: string;
+    name: string;
+    description: string;
+    members: string[];
+    invitePolicy: 'admins' | 'members';
+    approvalRequired: boolean;
+    notificationsEnabled: boolean;
+    postingMode: 'all' | 'admins';
+    slowModeSeconds: number;
+  }): Promise<boolean> => {
+    if (!supabase) return false;
+    try {
+      const { error } = await supabase.rpc('create_managed_group', {
+        target_thread: group.id,
+        thread_name: group.name,
+        thread_description: group.description,
+        target_members: group.members,
+        group_invites: group.invitePolicy,
+        group_approval: group.approvalRequired,
+        group_notifications: group.notificationsEnabled,
+        group_posting: group.postingMode,
+        group_slow_mode: group.slowModeSeconds,
+      });
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('facemash: createManagedGroup failed', error);
+      return false;
+    }
+  },
+
+  updateGroupSettings: (threadId: string, patch: {
+    name: string; description: string; avatarPath: string | null;
+    invitePolicy: 'admins' | 'members'; approvalRequired: boolean;
+    notificationsEnabled: boolean; postingMode: 'all' | 'admins'; slowModeSeconds: number;
+  }) => {
+    const client = supabase;
+    if (!client) return Promise.resolve(false);
+    return run('updateGroupSettings', () => client.rpc('update_group_settings', {
+      target_thread: threadId,
+      next_name: patch.name,
+      next_description: patch.description,
+      next_avatar_path: patch.avatarPath,
+      next_invite_policy: patch.invitePolicy,
+      next_approval: patch.approvalRequired,
+      next_notifications: patch.notificationsEnabled,
+      next_posting_mode: patch.postingMode,
+      next_slow_mode: patch.slowModeSeconds,
+    }));
+  },
+
+  uploadChannelAvatar: async (channelId: string, profileId: string, file: File): Promise<{ path: string; url: string } | null> => {
+    const client = supabase;
+    if (!client) return null;
+    const path = `${channelId}/${profileId}/${crypto.randomUUID()}.jpg`;
+    const { error } = await client.storage.from('channel-media').upload(path, file, {
+      cacheControl: '3600', contentType: 'image/jpeg', upsert: false,
+    });
+    if (error) {
+      console.error('facemash: uploadChannelAvatar failed', error);
+      return null;
+    }
+    const { data, error: signedError } = await client.storage.from('channel-media').createSignedUrl(path, 3600);
+    if (signedError || !data?.signedUrl) {
+      console.error('facemash: channel image signing failed', signedError);
+      return null;
+    }
+    return { path, url: data.signedUrl };
+  },
+
+  setChannelAvatar: (channelId: string, path: string | null) => {
+    const client = supabase;
+    if (!client) return Promise.resolve(false);
+    return run('setChannelAvatar', () => client.rpc('set_channel_avatar', { target_channel: channelId, target_path: path }));
+  },
+
+  updateChannelDetails: (channelId: string, name: string, description: string, avatarPath: string | null) => {
+    const client = supabase;
+    if (!client) return Promise.resolve(false);
+    return run('updateChannelDetails', () => client.rpc('update_channel_details', {
+      target_channel: channelId,
+      next_name: name,
+      next_description: description,
+      next_avatar_path: avatarPath,
+    }));
+  },
+
+  linkChannelDiscussion: async (channelId: string): Promise<string | null> => {
+    if (!supabase) return null;
+    try {
+      const { data, error } = await supabase.rpc('link_channel_discussion', { target_channel: channelId });
+      if (error) throw error;
+      return typeof data === 'string' ? data : null;
+    } catch (error) {
+      console.error('facemash: linkChannelDiscussion failed', error);
+      return null;
+    }
+  },
+
+  joinChannelDiscussion: async (channelId: string): Promise<string | null> => {
+    const client = supabase;
+    if (!client) return null;
+    try {
+      const { data, error } = await client.rpc('join_channel_discussion', { target_channel: channelId });
+      if (error) throw error;
+      return typeof data === 'string' ? data : null;
+    } catch (error) {
+      console.error('facemash: joinChannelDiscussion failed', error);
+      return null;
+    }
+  },
+
+  resolveChannelJoinRequest: (requestId: string, approve: boolean) => {
+    const client = supabase;
+    if (!client) return Promise.resolve(false);
+    return run('resolveChannelJoinRequest', () => client.rpc('resolve_channel_join_request', {
+      request_id: requestId,
+      approve,
+    }));
+  },
+
+  transferGroupOwner: (threadId: string, profileId: string) => {
+    const client = supabase;
+    if (!client) return Promise.resolve(false);
+    return run('transferGroupOwner', () => client.rpc('transfer_thread_owner', {
+      target_thread: threadId,
+      target_profile: profileId,
+    }));
+  },
+
+  closeCommunity: (threadId: string | null, channelId: string | null) => {
+    const client = supabase;
+    if (!client) return Promise.resolve(false);
+    return run('closeCommunity', () => client.rpc('close_community', {
+      target_thread: threadId,
+      target_channel: channelId,
+    }));
+  },
+
+  createChannelInvite: async (channelId: string, token: string, expiresAt: string, approvalRequired: boolean) => {
+    const client = supabase;
+    if (!client) return false;
+    try {
+      const { error } = await client.rpc('create_channel_invite', {
+        target_channel: channelId,
+        invite_token: token,
+        invite_expiry: expiresAt,
+        invite_approval: approvalRequired,
+        invite_max_uses: 100,
+      });
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('facemash: createChannelInvite failed', error);
+      return false;
+    }
+  },
+
+  revokeChannelInvites: (channelId: string) => {
+    const client = supabase;
+    if (!client) return Promise.resolve(false);
+    return run('revokeChannelInvites', () => client.rpc('revoke_channel_invites', { target_channel: channelId }));
+  },
+
+  setChannelAdmin: (channelId: string, profileId: string, makeAdmin: boolean) => {
+    const client = supabase;
+    if (!client) return Promise.resolve(false);
+    return run('setChannelAdmin', () => client.rpc('set_channel_admin', {
+      target_channel: channelId,
+      target_profile: profileId,
+      make_admin: makeAdmin,
+    }));
+  },
+
+  joinChannelInvite: async (token: string): Promise<{ status: string; channelId?: string } | null> => {
+    const client = supabase;
+    if (!client) return null;
+    try {
+      const { data, error } = await client.rpc('join_channel_invite', { invite_token: token });
+      if (error) throw error;
+      const row = data as Row | null;
+      return row && typeof row.status === 'string'
+        ? { status: row.status, channelId: typeof row.channel_id === 'string' ? row.channel_id : undefined }
+        : null;
+    } catch (error) {
+      console.error('facemash: joinChannelInvite failed', error);
+      return null;
+    }
+  },
+
+  createGroupInvite: async (threadId: string, token: string, expiresAt: string, approvalRequired: boolean) => {
+    if (!supabase) return false;
+    try {
+      const { error } = await supabase.rpc('create_group_invite', {
+        target_thread: threadId,
+        invite_token: token,
+        invite_expiry: expiresAt,
+        invite_approval: approvalRequired,
+        invite_max_uses: null,
+      });
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('facemash: createGroupInvite failed', error);
+      return false;
+    }
+  },
+
+  revokeGroupInvites: (threadId: string) => {
+    if (!supabase) return Promise.resolve(false);
+    return run('revokeGroupInvites', () => supabase!.rpc('revoke_group_invites', { target_thread: threadId }));
+  },
+
+  joinGroupInvite: async (token: string): Promise<{ status: string; threadId?: string } | null> => {
+    if (!supabase) return null;
+    try {
+      const { data, error } = await supabase.rpc('join_group_invite', { invite_token: token });
+      if (error) throw error;
+      const row = data as Row | null;
+      return row && typeof row.status === 'string'
+        ? { status: row.status, threadId: typeof row.thread_id === 'string' ? row.thread_id : undefined }
+        : null;
+    } catch (error) {
+      console.error('facemash: joinGroupInvite failed', error);
+      return null;
+    }
+  },
+
+  resolveGroupJoinRequest: (requestId: string, accept: boolean) => {
+    if (!supabase) return Promise.resolve(false);
+    return run('resolveGroupJoinRequest', () => supabase!.rpc('resolve_group_join_request', { request_id: requestId, accept }));
+  },
+
   addMessage: async (threadId: string, message: Message) => {
     const pendingCreation = pendingThreadCreations.get(threadId);
     if (pendingCreation && !(await pendingCreation)) return false;
@@ -655,13 +994,47 @@ export const remote = {
         reply_to_text: message.replyTo?.text ?? null,
         shared_post_id: message.sharedPostId ?? null,
         shared_text: message.sharedText ?? null,
-        media_url: message.mediaUrl ?? null,
+        media_url: message.mediaPath ?? message.mediaUrl ?? null,
       }),
     );
   },
 
   setMessageStatus: (messageId: string, status: Message['status']) =>
     run('setMessageStatus', () => table('messages').update({ status }).eq('id', messageId)),
+
+  acknowledgeThreadMessages: (threadId: string, readNow: boolean) => {
+    if (!supabase) return Promise.resolve(false);
+    return run('acknowledgeThreadMessages', () =>
+      supabase!.rpc('acknowledge_thread_messages', { target_thread: threadId, read_now: readNow }),
+    );
+  },
+
+  loadOlderMessages: async (threadId: string, before: number, limit = 50): Promise<{ messages: Message[]; hasMore: boolean }> => {
+    if (!supabase) return { messages: [], hasMore: false };
+    try {
+      const { data, error } = await supabase.rpc('older_thread_messages', {
+        target_thread: threadId, before_time: new Date(before).toISOString(), requested: limit,
+      });
+      if (error) throw error;
+      const rows = (data as Row[] | null) ?? [];
+      const hasMore = rows.length > limit;
+      const selected = rows.slice(0, limit);
+      const ids = selected.map((row) => String(row.id));
+      const { data: reactions } = ids.length
+        ? await supabase.from('message_reactions').select('message_id, icon').in('message_id', ids)
+        : { data: [] };
+      const reactionsById = new Map<string, Row[]>();
+      ((reactions as Row[] | null) ?? []).forEach((row) => {
+        const key = String(row.message_id);
+        reactionsById.set(key, [...(reactionsById.get(key) ?? []), { icon: row.icon }]);
+      });
+      const mapped = await signThreadMedia(selected.map((row) => toMessage({ ...row, message_reactions: reactionsById.get(String(row.id)) ?? [] })));
+      return { messages: mapped.sort((a, b) => a.createdAt - b.createdAt), hasMore };
+    } catch (error) {
+      console.error('facemash: loadOlderMessages failed', error);
+      return { messages: [], hasMore: false };
+    }
+  },
 
   reactToMessage: (messageId: string, profileId: string, icon: string, on: boolean) =>
     run('reactToMessage', () =>
@@ -731,6 +1104,55 @@ export const remote = {
     return supabase.storage.from('media').getPublicUrl(path).data.publicUrl;
   },
 
+  uploadThreadMedia: async (threadId: string, profileId: string, file: File): Promise<{ path: string; url: string } | null> => {
+    if (!supabase) return null;
+    const extension = file.name.match(/\.([a-zA-Z0-9]{1,16})$/)?.[1]?.toLowerCase() ?? 'bin';
+    const path = `${threadId}/${profileId}/${crypto.randomUUID()}.${extension}`;
+    const { error } = await supabase.storage.from('thread-media').upload(path, file, {
+      cacheControl: '3600', contentType: file.type || 'application/octet-stream', upsert: false,
+    });
+    if (error) {
+      console.error('facemash: uploadThreadMedia failed', error);
+      return null;
+    }
+    const { data, error: signedError } = await supabase.storage.from('thread-media').createSignedUrl(path, 3600);
+    if (signedError || !data?.signedUrl) {
+      console.error('facemash: signing uploaded thread media failed', signedError);
+      return null;
+    }
+    return { path, url: data.signedUrl };
+  },
+
+  uploadAvatar: async (profileId: string, file: File): Promise<string | null> => {
+    if (!supabase) return null;
+    const path = `${profileId}/${crypto.randomUUID()}.jpg`;
+    const { error } = await supabase.storage.from('avatars').upload(path, file, {
+      cacheControl: '3600', contentType: 'image/jpeg', upsert: false,
+    });
+    if (error) {
+      console.error('facemash: uploadAvatar failed', error);
+      return null;
+    }
+    return path;
+  },
+
+  signedAvatarUrl: async (path: string): Promise<string | null> => {
+    if (!supabase) return null;
+    const { data, error } = await supabase.storage.from('avatars').createSignedUrl(path, 3600);
+    if (error) {
+      console.error('facemash: signedAvatarUrl failed', error);
+      return null;
+    }
+    return data.signedUrl;
+  },
+
+  deleteAvatar: async (path: string): Promise<boolean> => {
+    if (!supabase) return false;
+    const { error } = await supabase.storage.from('avatars').remove([path]);
+    if (error) console.error('facemash: deleteAvatar failed', error);
+    return !error;
+  },
+
   setMembership: async (
     threadId: string,
     profileId: string,
@@ -786,6 +1208,31 @@ export const remote = {
             .eq('profile_id', profileId),
     ),
 
+  createChannel: async (channel: { id: string; name: string; slug: string; description: string; hue: number; isPrivate: boolean; createDiscussion?: boolean }) => {
+    if (!supabase) return false;
+    try {
+      const { error } = await supabase.rpc('create_managed_channel', {
+        target_channel: channel.id,
+        channel_name: channel.name,
+        channel_slug: channel.slug,
+        channel_description: channel.description,
+        channel_hue: channel.hue,
+        private_channel: channel.isPrivate,
+        create_discussion: channel.createDiscussion ?? false,
+      });
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('facemash: createChannel failed', error);
+      return false;
+    }
+  },
+
+  createChannelPost: (channelId: string, post: { id: string; text: string; authorId: string }) =>
+    run('createChannelPost', () => table('channel_posts').insert({
+      id: post.id, channel_id: channelId, text: post.text, author_id: post.authorId,
+    })),
+
   reactToChannelPost: (channelPostId: string, profileId: string, icon: string) =>
     run('reactChannelPost', () =>
       table('channel_post_reactions').upsert({
@@ -801,10 +1248,10 @@ export const remote = {
       return ids ? query.in('id', ids) : query;
     }),
 
-  saveProfile: (profileId: string, patch: { name: string; bio: string; location: string }) =>
+  saveProfile: (profileId: string, patch: { name: string; bio: string; location: string; avatarPath?: string | null }) =>
     run('saveProfile', () =>
       table('profiles')
-        .update({ name: patch.name, bio: patch.bio, location: patch.location })
+        .update({ name: patch.name, bio: patch.bio, location: patch.location, ...(patch.avatarPath !== undefined ? { avatar_path: patch.avatarPath } : {}) })
         .eq('id', profileId),
     ),
 

@@ -10,18 +10,21 @@ import {
 } from 'react';
 import { ME, seedData, seedFollows } from './data/seed';
 import { loadProfileId, loadSnapshot, remote, remoteEnabled, subscribeRealtime } from './data/remote';
+import { cropAvatar, toDataUrl } from './lib/image';
 import { demoMode, supabase } from './lib/supabase';
 import { dict, type Dict } from './lib/i18n';
 import { mmss } from './lib/format';
-import { clearPendingInviteCode, normalizeInviteCode, readPendingInviteCode, rememberInviteCode } from './lib/invites.mjs';
+import { clearPendingChannelInviteToken, clearPendingGroupInviteToken, clearPendingInviteCode, normalizeInviteCode, readPendingChannelInviteToken, readPendingGroupInviteToken, readPendingInviteCode, rememberInviteCode } from './lib/invites.mjs';
 import { encodeStory, makeStory } from './lib/stories';
 import type {
   AppNotification,
   Channel,
+  ChannelSettingsPatch,
   Comment,
   Conversation,
   Data,
   Group,
+  GroupSettingsPatch,
   Lang,
   MediaItem,
   Message,
@@ -179,6 +182,7 @@ interface AppValue {
   unblockUser: (userId: string) => void;
   reportPost: (postId: string) => void;
   reportUser: (userId: string) => void;
+  reportCommunity: (target: { threadId?: string; channelId?: string; channelPostId?: string }) => Promise<boolean>;
   addComment: (postId: string, text: string, parentId?: string | null) => void;
   /* stories */
   createStory: (draft: { kind: 'text' | 'photo' | 'video'; text?: string; url?: string; bg: number }) => Promise<boolean>;
@@ -198,6 +202,7 @@ interface AppValue {
   deleteMessage: (kind: ThreadKind, threadId: string, messageId: string) => void;
   openConversationWith: (userId: string) => string;
   markThreadRead: (kind: ThreadKind, threadId: string) => void;
+  loadOlderMessages: (kind: ThreadKind, threadId: string) => Promise<void>;
   markUnread: (threadId: string) => void;
   togglePin: (threadId: string) => void;
   toggleArchive: (threadId: string) => void;
@@ -205,11 +210,31 @@ interface AppValue {
   setEphemeral: (kind: ThreadKind, threadId: string, seconds: number) => void;
   purgeExpired: () => void;
   forwardMessage: (message: Message, target: { kind: ThreadKind; id: string }) => void;
-  createGroup: (name: string, description: string) => string;
+  createGroup: (name: string, description: string, participantIds?: string[], options?: {
+    avatar?: File | null; invitePolicy?: 'admins' | 'members'; approvalRequired?: boolean;
+    notificationsEnabled?: boolean; postingMode?: 'all' | 'admins'; slowModeSeconds?: number;
+  }) => Promise<string | null>;
+  updateGroupSettings: (groupId: string, patch: GroupSettingsPatch) => Promise<boolean>;
+  transferGroupOwner: (groupId: string, profileId: string) => Promise<boolean>;
+  closeCommunity: (kind: 'group' | 'channel', communityId: string) => Promise<boolean>;
+  createGroupInvite: (threadId: string, approvalRequired: boolean) => Promise<string | null>;
+  revokeGroupInvites: (threadId: string) => Promise<boolean>;
+  joinGroupInvite: (token: string) => Promise<{ status: string; threadId?: string } | null>;
+  resolveGroupJoinRequest: (requestId: string, accept: boolean) => Promise<boolean>;
+  createChannel: (input: { name: string; slug: string; description: string; isPrivate: boolean; createDiscussion?: boolean; avatar?: File | null }) => Promise<string | null>;
+  updateChannelSettings: (channelId: string, patch: ChannelSettingsPatch) => Promise<boolean>;
+  linkChannelDiscussion: (channelId: string) => Promise<string | null>;
+  joinChannelDiscussion: (channelId: string) => Promise<string | null>;
+  resolveChannelJoinRequest: (requestId: string, approve: boolean) => Promise<boolean>;
+  createChannelInvite: (channelId: string, approvalRequired: boolean) => Promise<string | null>;
+  revokeChannelInvites: (channelId: string) => Promise<boolean>;
+  joinChannelInvite: (token: string) => Promise<{ status: string; channelId?: string } | null>;
+  createChannelPost: (channelId: string, text: string) => Promise<boolean>;
   leaveGroup: (groupId: string) => void;
   setMemberRole: (groupId: string, userId: string, role: Role) => void;
   removeMember: (groupId: string, userId: string) => void;
   subscribeChannel: (channelId: string) => void;
+  setChannelAdmin: (channelId: string, profileId: string, makeAdmin: boolean) => Promise<boolean>;
   reactToChannelPost: (channelId: string, postId: string, icon: string) => void;
   sharePost: (postId: string, target: { kind: 'dm' | 'group'; id: string }) => void;
   /* notifications */
@@ -217,7 +242,7 @@ interface AppValue {
   markNotificationRead: (id: string) => void;
   respondToFollowRequest: (notificationId: string, accept: boolean) => void;
   /* profile */
-  saveProfile: (patch: { name: string; bio: string; location: string }) => void;
+  saveProfile: (patch: { name: string; bio: string; location: string; avatar?: File | null }) => Promise<boolean>;
   togglePrivateAccount: () => void;
   /* typing simulation */
   typingThreadId: string | null;
@@ -396,6 +421,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (claimed !== null) clearPendingInviteCode();
         if (cancelled) return;
       }
+      const groupInviteToken = readPendingGroupInviteToken();
+      if (groupInviteToken) {
+        const joined = await remote.joinGroupInvite(groupInviteToken);
+        if (joined !== null) clearPendingGroupInviteToken();
+        if (cancelled) return;
+      }
+      const channelInviteToken = readPendingChannelInviteToken();
+      if (channelInviteToken) {
+        const joined = await remote.joinChannelInvite(channelInviteToken);
+        if (joined !== null) clearPendingChannelInviteToken();
+        if (cancelled) return;
+      }
       const snapshot = await loadSnapshot(profileId).catch(() => null);
       if (cancelled) return;
       if (!snapshot) {
@@ -439,6 +476,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return;
         }
         receivedMessageIds.current.add(message.id);
+        // Realtime delivery is an actual receipt; opening the thread records read.
+        void remote.acknowledgeThreadMessages(threadId, false);
         setData((prev) => {
           const inConversation = prev.conversations.some((c) => c.id === threadId);
           const known = inConversation || prev.groups.some((g) => g.id === threadId);
@@ -689,6 +728,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (userId: string) => {
       showToast(t.reported);
       if (syncing) void remote.report(meId, { profileId: userId });
+    },
+    [showToast, t, syncing, meId],
+  );
+
+  const reportCommunity = useCallback(
+    async (target: { threadId?: string; channelId?: string; channelPostId?: string }) => {
+      if (!syncing) {
+        showToast(t.reported);
+        return true;
+      }
+      const saved = await remote.report(meId, target);
+      showToast(saved ? t.reported : t.messageSendError);
+      return saved;
     },
     [showToast, t, syncing, meId],
   );
@@ -1115,7 +1167,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         conversations: prev.conversations.map((c) => (c.id === threadId ? { ...c, unread: 0 } : c)),
         groups: prev.groups.map((g) => (g.id === threadId ? { ...g, unread: 0 } : g)),
       }));
-      if (syncing) void remote.setMembership(threadId, meId, { unread: 0, unread_at: unreadSince });
+      if (syncing) void remote.acknowledgeThreadMessages(threadId, true);
     },
     [data.conversations, data.groups, syncing, meId],
   );
@@ -1135,36 +1187,182 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const createGroup = useCallback(
-    (name: string, description: string) => {
+    async (name: string, description: string, participantIds: string[] = [], options: {
+      avatar?: File | null; invitePolicy?: 'admins' | 'members'; approvalRequired?: boolean;
+      notificationsEnabled?: boolean; postingMode?: 'all' | 'admins'; slowModeSeconds?: number;
+    } = {}) => {
+      if (syncing && offline) {
+        showToast(t.networkRequired);
+        return null;
+      }
+      const safeParticipants = [...new Set(participantIds)].filter(
+        (profileId) => profileId !== meId && dataRef.current.users.some((candidate) => candidate.id === profileId) && !userRef.current.blocked[profileId],
+      ).slice(0, 999);
       const group: Group = {
         id: newId(),
         name: name.trim(),
         description,
         hue: 265,
+        invitePolicy: options.invitePolicy ?? 'admins',
+        approvalRequired: options.approvalRequired ?? false,
+        notificationsEnabled: options.notificationsEnabled ?? true,
+        postingMode: options.postingMode ?? 'all',
+        slowModeSeconds: options.slowModeSeconds ?? 0,
         unread: 0,
-        members: [{ userId: meId, role: 'owner' }],
+        members: [{ userId: meId, role: 'owner' }, ...safeParticipants.map((userId) => ({ userId, role: 'member' as const }))],
         messages: [],
       };
-      setData((prev) => ({ ...prev, groups: [...prev.groups, group] }));
       if (syncing) {
-        void remote.createThread({
+        const created = await remote.createManagedGroup({
           id: group.id,
-          kind: 'group',
           name: group.name,
           description: group.description,
-          hue: group.hue,
-          createdBy: meId,
-          members: [{ profileId: meId, role: 'owner' }],
-        }).then((created) => {
-          if (created) return;
-          setData((prev) => ({ ...prev, groups: prev.groups.filter((item) => item.id !== group.id) }));
-          showToast(t.messageSendError);
+          members: safeParticipants,
+          invitePolicy: group.invitePolicy!,
+          approvalRequired: group.approvalRequired!,
+          notificationsEnabled: group.notificationsEnabled!,
+          postingMode: group.postingMode!,
+          slowModeSeconds: group.slowModeSeconds!,
         });
+        if (!created) {
+          showToast(t.messageSendError);
+          return null;
+        }
+        if (options.avatar) {
+          try {
+            const cropped = await cropAvatar(options.avatar);
+            const uploaded = await remote.uploadThreadMedia(group.id, meId, cropped);
+            if (uploaded) {
+              const saved = await remote.updateGroupSettings(group.id, {
+                name: group.name, description: group.description, avatarPath: uploaded.path,
+                invitePolicy: group.invitePolicy!, approvalRequired: group.approvalRequired!,
+                notificationsEnabled: group.notificationsEnabled!, postingMode: group.postingMode!,
+                slowModeSeconds: group.slowModeSeconds!,
+              });
+              if (saved) {
+                group.avatarPath = uploaded.path;
+                group.avatarUrl = uploaded.url;
+              } else showToast(t.messageSendError);
+            } else showToast(t.messageSendError);
+          } catch (error) {
+            showToast(error instanceof Error ? error.message : t.messageSendError);
+          }
+        }
+        await refreshRef.current();
+      } else {
+        if (options.avatar) {
+          try { group.avatarUrl = await toDataUrl(await cropAvatar(options.avatar)); }
+          catch (error) { showToast(error instanceof Error ? error.message : t.messageSendError); return null; }
+        }
+        setData((prev) => ({ ...prev, groups: [...prev.groups, group] }));
       }
       return group.id;
     },
-    [meId, showToast, syncing, t],
+    [meId, offline, showToast, syncing, t],
   );
+
+  const updateGroupSettings = useCallback(async (groupId: string, patch: GroupSettingsPatch) => {
+    if (syncing && offline) {
+      showToast(t.networkRequired);
+      return false;
+    }
+    const current = dataRef.current.groups.find((item) => item.id === groupId);
+    if (!current) return false;
+    const next = {
+      name: patch.name?.trim() || current.name,
+      description: patch.description ?? current.description,
+      invitePolicy: patch.invitePolicy ?? current.invitePolicy ?? 'admins',
+      approvalRequired: patch.approvalRequired ?? current.approvalRequired ?? false,
+      notificationsEnabled: patch.notificationsEnabled ?? current.notificationsEnabled ?? true,
+      postingMode: patch.postingMode ?? current.postingMode ?? 'all',
+      slowModeSeconds: patch.slowModeSeconds ?? current.slowModeSeconds ?? 0,
+    } as const;
+    let avatarPath = current.avatarPath ?? null;
+    let avatarUrl = current.avatarUrl;
+    if (patch.avatar !== undefined) {
+      if (patch.avatar === null) {
+        avatarPath = null;
+        avatarUrl = undefined;
+      } else if (syncing) {
+        try {
+          const uploaded = await remote.uploadThreadMedia(groupId, meId, await cropAvatar(patch.avatar));
+          if (!uploaded) {
+            showToast(t.messageSendError);
+            return false;
+          }
+          avatarPath = uploaded.path;
+          avatarUrl = uploaded.url;
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : t.messageSendError);
+          return false;
+        }
+      } else {
+        try {
+          avatarUrl = await toDataUrl(await cropAvatar(patch.avatar));
+          avatarPath = null;
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : t.messageSendError);
+          return false;
+        }
+      }
+    }
+    if (syncing) {
+      const saved = await remote.updateGroupSettings(groupId, {
+        ...next,
+        avatarPath,
+      });
+      if (!saved) {
+        showToast(t.messageSendError);
+        return false;
+      }
+    }
+    setData((prev) => ({
+      ...prev,
+      groups: prev.groups.map((item) => item.id === groupId
+        ? { ...item, ...next, avatarPath: avatarPath ?? undefined, avatarUrl }
+        : item),
+    }));
+    if (syncing) await refreshRef.current();
+    return true;
+  }, [meId, offline, showToast, syncing, t]);
+
+  const transferGroupOwner = useCallback(async (groupId: string, profileId: string) => {
+    if (syncing && offline) {
+      showToast(t.networkRequired);
+      return false;
+    }
+    if (syncing && !(await remote.transferGroupOwner(groupId, profileId))) {
+      showToast(t.messageSendError);
+      return false;
+    }
+    setData((prev) => ({
+      ...prev,
+      groups: prev.groups.map((group) => group.id !== groupId ? group : {
+        ...group,
+        members: group.members.map((member) => member.userId === profileId
+          ? { ...member, role: 'owner' }
+          : member.role === 'owner' ? { ...member, role: 'admin' } : member),
+      }),
+    }));
+    if (syncing) await refreshRef.current();
+    return true;
+  }, [offline, showToast, syncing, t]);
+
+  const closeCommunity = useCallback(async (kind: 'group' | 'channel', communityId: string) => {
+    if (syncing && offline) {
+      showToast(t.networkRequired);
+      return false;
+    }
+    if (syncing && !(await remote.closeCommunity(kind === 'group' ? communityId : null, kind === 'channel' ? communityId : null))) {
+      showToast(t.messageSendError);
+      return false;
+    }
+    setData((prev) => kind === 'group'
+      ? { ...prev, groups: prev.groups.filter((group) => group.id !== communityId) }
+      : { ...prev, channels: prev.channels.filter((channel) => channel.id !== communityId) });
+    if (syncing) await refreshRef.current();
+    return true;
+  }, [offline, showToast, syncing, t]);
 
   const leaveGroup = useCallback(
     (groupId: string) => {
@@ -1381,18 +1579,378 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [meId, syncing]);
 
   const saveProfile = useCallback(
-    (patch: { name: string; bio: string; location: string }) => {
+    async (patch: { name: string; bio: string; location: string; avatar?: File | null }) => {
+      const current = dataRef.current.users.find((u) => u.id === meId);
+      let avatarPath = current?.avatarPath;
+      let avatarUrl = current?.avatarUrl;
+      if (patch.avatar !== undefined) {
+        if (patch.avatar === null) {
+          if (syncing && avatarPath && !(await remote.deleteAvatar(avatarPath))) {
+            showToast(t.messageSendError);
+            return false;
+          }
+          avatarPath = undefined;
+          avatarUrl = undefined;
+        } else if (syncing) {
+          let cropped: File;
+          try {
+            cropped = await cropAvatar(patch.avatar);
+          } catch (error) {
+            showToast(error instanceof Error ? error.message : t.messageSendError);
+            return false;
+          }
+          const nextPath = await remote.uploadAvatar(meId, cropped);
+          if (!nextPath) {
+            showToast(t.messageSendError);
+            return false;
+          }
+          const saved = await remote.saveProfile(meId, { ...patch, avatarPath: nextPath });
+          if (!saved) {
+            await remote.deleteAvatar(nextPath);
+            showToast(t.messageSendError);
+            return false;
+          }
+          avatarPath = nextPath;
+          avatarUrl = (await remote.signedAvatarUrl(nextPath)) ?? undefined;
+          if (current?.avatarPath && current.avatarPath !== nextPath) void remote.deleteAvatar(current.avatarPath);
+        } else {
+          try {
+            avatarUrl = await toDataUrl(await cropAvatar(patch.avatar));
+            avatarPath = undefined;
+          } catch (error) {
+            showToast(error instanceof Error ? error.message : t.messageSendError);
+            return false;
+          }
+        }
+      }
+
+      if (syncing && patch.avatar !== null && !(patch.avatar instanceof File)) {
+        const saved = await remote.saveProfile(meId, patch);
+        if (!saved) {
+          showToast(t.messageSendError);
+          return false;
+        }
+      } else if (syncing && patch.avatar === null) {
+        const saved = await remote.saveProfile(meId, { ...patch, avatarPath: null });
+        if (!saved) {
+          showToast(t.messageSendError);
+          return false;
+        }
+      }
+
       setData((prev) => ({
         ...prev,
         users: prev.users.map((u) =>
-          u.id === meId ? { ...u, name: patch.name || u.name, bio: patch.bio, location: patch.location } : u,
+          u.id === meId ? { ...u, name: patch.name || u.name, bio: patch.bio, location: patch.location, avatarPath, avatarUrl } : u,
         ),
       }));
       showToast(t.savedOk);
-      if (syncing) void remote.saveProfile(meId, patch);
+      return true;
     },
     [meId, showToast, t, syncing],
   );
+
+  const setChannelAdmin = useCallback(async (channelId: string, profileId: string, makeAdmin: boolean) => {
+    if (syncing && offline) {
+      showToast(t.networkRequired);
+      return false;
+    }
+    if (syncing && !(await remote.setChannelAdmin(channelId, profileId, makeAdmin))) {
+      showToast(t.messageSendError);
+      return false;
+    }
+    setData((prev) => ({
+      ...prev,
+      channels: prev.channels.map((channel) => {
+        if (channel.id !== channelId) return channel;
+        const current = channel.adminProfileIds ?? [];
+        const next = makeAdmin
+          ? [...new Set([...current, profileId])]
+          : current.filter((id) => id !== profileId);
+        return { ...channel, adminProfileIds: next };
+      }),
+    }));
+    if (syncing) await refreshRef.current();
+    return true;
+  }, [offline, showToast, syncing, t]);
+
+  const loadOlderMessages = useCallback(async (kind: ThreadKind, threadId: string) => {
+    const thread = kind === 'dm'
+      ? dataRef.current.conversations.find((item) => item.id === threadId)
+      : dataRef.current.groups.find((item) => item.id === threadId);
+    const oldest = thread?.messages[0]?.createdAt;
+    if (!thread?.hasMore || !oldest) return;
+    const page = await remote.loadOlderMessages(threadId, oldest);
+    if (!page.messages.length) {
+      setData((prev) => ({
+        ...prev,
+        conversations: prev.conversations.map((item) => item.id === threadId ? { ...item, hasMore: false } : item),
+        groups: prev.groups.map((item) => item.id === threadId ? { ...item, hasMore: false } : item),
+      }));
+      return;
+    }
+    setData((prev) => {
+      const merge = <T extends { id: string; messages: Message[]; hasMore?: boolean }>(item: T): T => item.id !== threadId ? item : {
+        ...item,
+        messages: [...page.messages.filter((older) => !item.messages.some((current) => current.id === older.id)), ...item.messages],
+        hasMore: page.hasMore,
+      };
+      return { ...prev, conversations: prev.conversations.map(merge), groups: prev.groups.map(merge) };
+    });
+  }, []);
+
+  const createGroupInvite = useCallback(async (threadId: string, approvalRequired: boolean) => {
+    if (!syncing) {
+      showToast(t.liveAccountRequired);
+      return null;
+    }
+    if (syncing && offline) {
+      showToast(t.networkRequired);
+      return null;
+    }
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const token = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    if (syncing) {
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const created = await remote.createGroupInvite(threadId, token, expiresAt, approvalRequired);
+      if (!created) {
+        showToast(t.messageSendError);
+        return null;
+      }
+    }
+    return token;
+  }, [syncing, offline, showToast, t]);
+
+  const createChannelInvite = useCallback(async (channelId: string, approvalRequired: boolean) => {
+    if (!syncing) {
+      showToast(t.liveAccountRequired);
+      return null;
+    }
+    if (offline) {
+      showToast(t.networkRequired);
+      return null;
+    }
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const token = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    if (!(await remote.createChannelInvite(channelId, token, expiresAt, approvalRequired))) {
+      showToast(t.messageSendError);
+      return null;
+    }
+    return token;
+  }, [offline, showToast, syncing, t]);
+
+  const revokeChannelInvites = useCallback(async (channelId: string) => {
+    if (!syncing || offline) {
+      showToast(offline ? t.networkRequired : t.liveAccountRequired);
+      return false;
+    }
+    const revoked = await remote.revokeChannelInvites(channelId);
+    if (!revoked) showToast(t.messageSendError);
+    return revoked;
+  }, [offline, showToast, syncing, t]);
+
+  const joinChannelInvite = useCallback(async (token: string) => {
+    if (offline) {
+      showToast(t.networkRequired);
+      return null;
+    }
+    const result = await remote.joinChannelInvite(token);
+    if (result?.status === 'joined') await refreshRef.current();
+    return result;
+  }, [offline, showToast, t]);
+
+  const revokeGroupInvites = useCallback(async (threadId: string) => {
+    if (syncing && offline) {
+      showToast(t.networkRequired);
+      return false;
+    }
+    if (syncing) {
+      const revoked = await remote.revokeGroupInvites(threadId);
+      if (!revoked) showToast(t.messageSendError);
+      return revoked;
+    }
+    return false;
+  }, [syncing, offline, showToast, t]);
+
+  const joinGroupInvite = useCallback(async (token: string) => {
+    const result = await remote.joinGroupInvite(token);
+    if (result?.status === 'joined' || result?.status === 'member') await refreshRef.current();
+    return result;
+  }, []);
+
+  const resolveGroupJoinRequest = useCallback(async (requestId: string, accept: boolean) => {
+    const resolved = await remote.resolveGroupJoinRequest(requestId, accept);
+    if (resolved) await refreshRef.current();
+    else showToast(t.messageSendError);
+    return resolved;
+  }, [showToast, t]);
+
+  const createChannel = useCallback(async (input: { name: string; slug: string; description: string; isPrivate: boolean; createDiscussion?: boolean; avatar?: File | null }) => {
+    const channelId = newId();
+    if (syncing) {
+      if (offline) {
+        showToast(t.networkRequired);
+        return null;
+      }
+      const created = await remote.createChannel({ id: channelId, ...input, hue: 182 });
+      if (!created) {
+        showToast(t.messageSendError);
+        return null;
+      }
+      let avatarPath: string | undefined;
+      let avatarUrl: string | undefined;
+      if (input.avatar) {
+        try {
+          const cropped = await cropAvatar(input.avatar);
+          const uploaded = await remote.uploadChannelAvatar(channelId, meId, cropped);
+          if (uploaded && await remote.setChannelAvatar(channelId, uploaded.path)) {
+            avatarPath = uploaded.path;
+            avatarUrl = uploaded.url;
+          } else showToast(t.messageSendError);
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : t.messageSendError);
+        }
+      }
+      await refreshRef.current();
+      if (avatarPath) setData((prev) => ({ ...prev, channels: prev.channels.map((channel) => channel.id === channelId ? { ...channel, avatarPath, avatarUrl } : channel) }));
+      return channelId;
+    }
+    let localAvatarUrl: string | undefined;
+    if (input.avatar) {
+      try { localAvatarUrl = await toDataUrl(await cropAvatar(input.avatar)); }
+      catch (error) { showToast(error instanceof Error ? error.message : t.messageSendError); return null; }
+    }
+    const channel: Channel = {
+      id: channelId,
+      name: input.name,
+      slug: input.slug,
+      description: input.description,
+      isPrivate: input.isPrivate,
+      hue: 182,
+      subscribers: 1,
+      subscribed: true,
+      ownerProfileId: meId,
+      adminProfileIds: [],
+      avatarUrl: localAvatarUrl,
+      posts: [],
+    };
+    setData((prev) => ({ ...prev, channels: [channel, ...prev.channels] }));
+    return channelId;
+  }, [syncing, offline, showToast, t, meId]);
+
+  const updateChannelSettings = useCallback(async (channelId: string, patch: ChannelSettingsPatch) => {
+    if (syncing && offline) {
+      showToast(t.networkRequired);
+      return false;
+    }
+    const current = dataRef.current.channels.find((item) => item.id === channelId);
+    if (!current) return false;
+    let avatarPath = current.avatarPath ?? null;
+    let avatarUrl = current.avatarUrl;
+    if (patch.avatar !== undefined) {
+      if (patch.avatar === null) {
+        avatarPath = null;
+        avatarUrl = undefined;
+      } else if (syncing) {
+        try {
+          const uploaded = await remote.uploadChannelAvatar(channelId, meId, await cropAvatar(patch.avatar));
+          if (!uploaded) {
+            showToast(t.messageSendError);
+            return false;
+          }
+          avatarPath = uploaded.path;
+          avatarUrl = uploaded.url;
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : t.messageSendError);
+          return false;
+        }
+      } else {
+        try {
+          avatarUrl = await toDataUrl(await cropAvatar(patch.avatar));
+          avatarPath = null;
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : t.messageSendError);
+          return false;
+        }
+      }
+    }
+    const nextName = patch.name?.trim() || current.name;
+    const nextDescription = patch.description ?? current.description;
+    if (syncing && !(await remote.updateChannelDetails(channelId, nextName, nextDescription, avatarPath))) {
+      showToast(t.messageSendError);
+      return false;
+    }
+    setData((prev) => ({
+      ...prev,
+      channels: prev.channels.map((item) => item.id === channelId
+        ? { ...item, name: nextName, description: nextDescription, avatarPath: avatarPath ?? undefined, avatarUrl }
+        : item),
+    }));
+    if (syncing) await refreshRef.current();
+    return true;
+  }, [meId, offline, showToast, syncing, t]);
+
+  const linkChannelDiscussion = useCallback(async (channelId: string) => {
+    if (offline) {
+      showToast(t.networkRequired);
+      return null;
+    }
+    const threadId = await remote.linkChannelDiscussion(channelId);
+    if (threadId) await refreshRef.current();
+    else showToast(t.messageSendError);
+    return threadId;
+  }, [offline, showToast, t]);
+
+  const joinChannelDiscussion = useCallback(async (channelId: string) => {
+    if (offline) {
+      showToast(t.networkRequired);
+      return null;
+    }
+    const threadId = await remote.joinChannelDiscussion(channelId);
+    if (threadId) await refreshRef.current();
+    else showToast(t.messageSendError);
+    return threadId;
+  }, [offline, showToast, t]);
+
+  const resolveChannelJoinRequest = useCallback(async (requestId: string, approve: boolean) => {
+    if (offline) {
+      showToast(t.networkRequired);
+      return false;
+    }
+    const resolved = await remote.resolveChannelJoinRequest(requestId, approve);
+    if (resolved) await refreshRef.current();
+    else showToast(t.messageSendError);
+    return resolved;
+  }, [offline, showToast, t]);
+
+  const createChannelPost = useCallback(async (channelId: string, text: string) => {
+    const normalized = text.trim();
+    if (!normalized) return false;
+    if (syncing && offline) {
+      showToast(t.networkRequired);
+      return false;
+    }
+    const postId = newId();
+    if (syncing) {
+      const saved = await remote.createChannelPost(channelId, { id: postId, text: normalized, authorId: meId });
+      if (!saved) {
+        showToast(t.messageSendError);
+        return false;
+      }
+      await refreshRef.current();
+      return true;
+    }
+    setData((prev) => ({
+      ...prev,
+      channels: prev.channels.map((channel) => channel.id === channelId
+        ? { ...channel, posts: [{ id: postId, text: normalized, createdAt: Date.now(), views: 0, reactions: {}, media: [], authorId: meId }, ...channel.posts] }
+        : channel),
+    }));
+    return true;
+  }, [syncing, offline, showToast, t, meId]);
 
   const signIn = useCallback((next: Session) => {
     setAccountError(null);
@@ -1491,6 +2049,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     unblockUser,
     reportPost,
     reportUser,
+    reportCommunity,
     createStory,
     deleteStory,
     addComment,
@@ -1507,6 +2066,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     deleteMessage,
     openConversationWith,
     markThreadRead,
+    loadOlderMessages,
     markUnread,
     togglePin,
     toggleArchive,
@@ -1515,10 +2075,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     purgeExpired,
     forwardMessage,
     createGroup,
+    updateGroupSettings,
+    transferGroupOwner,
+    closeCommunity,
+    createGroupInvite,
+    revokeGroupInvites,
+    joinGroupInvite,
+    resolveGroupJoinRequest,
+    createChannel,
+    updateChannelSettings,
+    linkChannelDiscussion,
+    joinChannelDiscussion,
+    resolveChannelJoinRequest,
+    createChannelInvite,
+    revokeChannelInvites,
+    joinChannelInvite,
+    createChannelPost,
     leaveGroup,
     setMemberRole,
     removeMember,
     subscribeChannel,
+    setChannelAdmin,
     reactToChannelPost,
     sharePost,
     markAllNotificationsRead,

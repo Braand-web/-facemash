@@ -46,7 +46,7 @@ export function UserAvatar({
   const hasStory = !!group && group.items.length > 0;
   const allSeen = hasStory && group.items.every((item) => seen.has(storyKey(userId, item)));
 
-  const avatar = <Avatar hue={author.hue} initials={toInitials(author.name)} size={hasStory ? size - 8 : size} radius={radius} />;
+  const avatar = <Avatar hue={author.hue} initials={toInitials(author.name)} size={hasStory ? size - 8 : size} radius={radius} src={author.avatarUrl} />;
   const handle = (event: MouseEvent) => {
     event.stopPropagation();
     if (hasStory) openStory(groupIndex);

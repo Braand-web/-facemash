@@ -8,6 +8,25 @@ export interface UploadedFile {
   ratio: string;
   /** True when the URL only lives for this page session (demo mode). */
   local: boolean;
+  /** Private Storage path used by messages; never a public URL. */
+  storagePath?: string;
+}
+
+/** Uploads message attachments into the membership-protected conversation bucket. */
+export async function uploadThreadFile(source: File, threadId: string, profileId: string, syncing: boolean): Promise<UploadedFile> {
+  const video = source.type.startsWith('video/');
+  const file = video ? source : await compressImage(source);
+  const base = {
+    video,
+    label: `${file.name} · ${prettySize(file.size)}`,
+    ratio: video ? '9/16' : await ratioOf(file),
+  };
+  if (syncing) {
+    const uploaded = await remote.uploadThreadMedia(threadId, profileId, file);
+    if (uploaded) return { ...base, url: uploaded.url, storagePath: uploaded.path, local: false };
+    throw new Error('Le fichier privé n’a pas pu être envoyé.');
+  }
+  return { ...base, url: URL.createObjectURL(file), local: true };
 }
 
 const prettySize = (bytes: number) =>
